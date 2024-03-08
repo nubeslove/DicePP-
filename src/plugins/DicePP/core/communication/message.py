@@ -1,6 +1,5 @@
 from typing import Optional
 
-
 class MessageSender:
     def __init__(self, user_id: str, nickname: str):
         self.user_id: Optional[str] = user_id

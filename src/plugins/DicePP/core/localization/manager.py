@@ -86,7 +86,7 @@ class LocalizationManager:
             key = preprocess_msg(key)  # 对key做一下预处理, 因为匹配的目标是预处理过后的
             comment: str = row[0].comment  # 沿用文件里的注释
             self.all_chat_texts[key] = LocalizationText(key, comment=comment)
-            for text in [str(cell.value) for cell in row[1:] if cell.value and cell.value.strip()]:
+            for text in [str(cell.value) for cell in row[1:] if cell.value and str(cell.value).strip()]:
                 self.all_chat_texts[key].add(text)
 
         has_chat: bool = (len(self.all_chat_texts) != 0)

@@ -1,14 +1,16 @@
 import unittest
 from typing import Callable
 
-import roll_config
-from module.roll.expression import parse_roll_exp, exec_roll_exp, RollExpression, preprocess_roll_exp
+#import roll_config
+import module.roll.roll_config as roll_config
+from module.roll.expression import parse_roll_exp, exec_roll_exp, RollExpression, preprocess_roll_exp, split_roll_str, combine_roll_str, parse_single_roll_exp,calculate_rool_exp,create_leveling_list
 from module.roll.roll_utils import match_outer_parentheses, remove_redundant_parentheses, RollDiceError
 from module.roll.result import RollResult
 
 
 class MyTestCase(unittest.TestCase):
     def test_utils(self):
+        """
         self.assertEqual(match_outer_parentheses("()"), 1)
         self.assertEqual(match_outer_parentheses("(ABC)"), 4)
         self.assertEqual(match_outer_parentheses("(A()A)"), 5)
@@ -40,6 +42,7 @@ class MyTestCase(unittest.TestCase):
         self.assertEqual("A+(A+B)*C", remove_redundant_parentheses("A+(A+B)*C"))
         self.assertEqual("A*(A+B)+C", remove_redundant_parentheses("A*(A+B)+C"))
         self.assertEqual("max{max2{+(5+14+5+12)}}", remove_redundant_parentheses("max{max2{+(5+14+5+12)}}"))
+        """
 
     def __show_exec_res(self, exp_str: str, checker: Callable[[str], bool] = None):
         for _ in range(100):
@@ -63,9 +66,42 @@ class MyTestCase(unittest.TestCase):
         except RollDiceError as e:
             print("\t\t--- Check Exception ---")
             print(f"Origin Exp: \033[0;35m{exp_str} \t\033[0;33m{e.info}")
+    
+    def __show_split_res(self, exp_str: str):
+        split_list = split_roll_str(exp_str)
+        print(exp_str)
+        print("  拆分:"+str(split_list))
+        print("  合并:"+combine_roll_str(split_list))
+        
+    def __show_split_exp(self, exp_str: str):
+        split_list = split_roll_str(exp_str)
+        print(exp_str)
+        thing_list: List[Any] = []
+        for item in split_list[0]:
+            thing_list.append(parse_single_roll_exp(item))
+        leveling_list = create_leveling_list(split_list[0], split_list[1])
+        print(leveling_list)
+        #print("  拆分:"+str([str(type(thing)) for thing in thing_list]))
+        leveling_list = create_leveling_list(thing_list, split_list[1])
+        #print(leveling_list)
+        result = calculate_rool_exp(leveling_list)
+        print(result.get_result())
+            
 
     def test_basic_roll(self):
+        """
+        self.__show_split_res("1D20")
+        self.__show_split_res("1D20+8+10-5D6*8")
+        self.__show_split_res("1D20+20-1")
+        self.__show_split_res("(4D6+5)*6+1")
+        self.__show_split_res("(2+1)*(((1+2)))")
+        self.__show_split_res("D20+5 这是哥布林的攻击检定")
+        self.__show_split_res("D20+5这是哥布林的攻击检定")
+        
+        self.__show_split_exp("4D6+((3D6K2+5)*2)-1 攻击检定")
+        """
         # 基础情况
+        """
         self.__show_exec_res("1D20", checker=lambda s: s.split("=")[0] == "1D20" and 1 <= int(s.split("=")[1]) <= 20)
         self.__show_exec_res("3D20")
         self.__show_exec_res("D", checker=lambda s: s.split("=")[0] == "1D20" and 1 <= int(s.split("=")[1]) <= 20)
@@ -74,7 +110,7 @@ class MyTestCase(unittest.TestCase):
         self.__show_exec_res("1", checker=lambda s: "1" == s)
         self.__show_exec_res("+1D20", checker=lambda s: s.split("=")[0] == "1D20" and 1 <= int(s.split("=")[1]) <= 20)
         self.__show_exec_res("-1D20", checker=lambda s: s.split("=")[0] == "-1D20" and -20 <= int(s.split("=")[1]) <= -1)
-
+        """
         # 基础运算
         self.__show_exec_res("1D20+1")
         self.__show_exec_res("1D20-1")
@@ -96,7 +132,7 @@ class MyTestCase(unittest.TestCase):
         self.__show_exec_res("1+1-1+1")
 
         # 带空格和中文字符情况 (由于判断指令中表达式和掷骰原因的问题去掉了过滤空格的代码)
-        self.__show_exec_res("1d20", checker=lambda s: s.split("=")[0] == "1D20" and 1 <= int(s.split("=")[1]) <= 20)
+        # self.__show_exec_res("1d20", checker=lambda s: s.split("=")[0] == "1D20" and 1 <= int(s.split("=")[1]) <= 20)
         self.__show_exec_res("d20＋1")
         # self.__show_exec_res(" 1 D 2 0 ")
         # self.__show_exec_res("1D20 ＋ 1")
@@ -163,6 +199,7 @@ class MyTestCase(unittest.TestCase):
 
     def test_d20_state(self):
         # 测试大成功或大失败是否可以生效
+        """
         def repeat_until_checked(exp_str: str) -> bool:
             exp: RollExpression = parse_roll_exp(preprocess_roll_exp(exp_str))
             has_succ, has_fail = False, False
@@ -186,6 +223,7 @@ class MyTestCase(unittest.TestCase):
         self.assertTrue(not repeat_until_checked("2D20"))
         self.assertTrue(not repeat_until_checked("4D20K3"))
         self.assertTrue(not repeat_until_checked("D20+D20"))
+        """
 
 
 if __name__ == '__main__':

@@ -9,12 +9,20 @@ from core.command.const import *
 from core.command import UserCommandBase, custom_user_command
 from core.command import BotCommandBase, BotSendMsgCommand
 from core.communication import MessageMetaData, PrivateMessagePort, GroupMessagePort
-from core.config import CFG_MASTER
+from core.config import CFG_MASTER, CFG_ADMIN
+from core.data import custom_data_chunk, DataChunkBase
 
 LOC_REBOOT = "master_reboot"
 LOC_SEND_MASTER = "master_send_to_master"
 LOC_SEND_TARGET = "master_send_to_target"
 
+DC_CTRL = "master_control"
+
+@custom_data_chunk(identifier=DC_CTRL,
+                   include_json_object=True)
+class _(DataChunkBase):
+    def __init__(self):
+        super().__init__()
 
 @custom_user_command(readable_name="Master指令", priority=DPP_COMMAND_PRIORITY_MASTER,
                      flag=DPP_COMMAND_FLAG_MANAGE)
@@ -33,10 +41,12 @@ class MasterCommand(UserCommandBase):
         bot.loc_helper.register_loc_text(LOC_SEND_TARGET, "From Master: {msg}", "用.m send指令发送消息时给目标的回复")
 
     def can_process_msg(self, msg_str: str, meta: MessageMetaData) -> Tuple[bool, bool, Any]:
+        # 此处改为Master或Admin都可以使用.m指令——不然Admin不好用
         master_list = self.bot.cfg_helper.get_config(CFG_MASTER)
+        admin_list = self.bot.cfg_helper.get_config(CFG_ADMIN)
         should_proc: bool = False
         should_pass: bool = False
-        if meta.user_id not in master_list:
+        if (meta.user_id not in master_list) and (meta.user_id not in admin_list):
             return should_proc, should_pass, None
 
         should_proc = msg_str.startswith(".m")
@@ -50,6 +60,8 @@ class MasterCommand(UserCommandBase):
         command_list: List[BotCommandBase] = []
 
         if arg_str == "reboot":
+            # 记录下本次的reboot者，下次重启时读取
+            self.bot.data_manager.set_data(DC_CTRL, ["rebooter"], meta.user_id)
             # noinspection PyBroadException
             try:
                 self.bot.reboot()
@@ -86,6 +98,14 @@ class MasterCommand(UserCommandBase):
 
             self.bot.register_task(clear_expired_data, timeout=3600)
             feedback = "清理开始..."
+        elif arg_str == "debug-tick":
+            feedback = f"异步任务状态: {self.bot.tick_task.get_name()} Done:{self.bot.tick_task.done()} Cancelled:{self.bot.tick_task.cancelled()}\n" \
+                       f"{self.bot.tick_task}"
+        elif arg_str == "redo-tick":
+            import asyncio
+            self.bot.tick_task = asyncio.create_task(self.bot.tick_loop())
+            self.bot.todo_tasks = {}
+            feedback = "Redo tick finish!"
         else:
             feedback = self.get_help("m", meta)
 

@@ -7,6 +7,7 @@ from core.command.const import *
 from core.command import UserCommandBase, custom_user_command
 from core.command import BotCommandBase, BotSendMsgCommand
 from core.communication import MessageMetaData, PrivateMessagePort, GroupMessagePort
+from .groupconfig_command import DC_GROUPCONFIG
 from utils.time import get_current_date_str, get_current_date_raw, str_to_datetime, datetime_to_str
 
 CFG_CHAT_INTER = "chat_interval"
@@ -43,6 +44,9 @@ class ChatCommand(UserCommandBase):
 
     def can_process_msg(self, msg_str: str, meta: MessageMetaData) -> Tuple[bool, bool, Any]:
         should_proc: bool = False
+        # 如果没开chat，那就别处理了
+        if not self.bot.data_manager.get_data(DC_GROUPCONFIG,[meta.group_id,"chat"],default_val=True):
+            return False, False, ""
         target: str = meta.group_id if meta.group_id else meta.user_id
         try:
             time_str = self.bot.data_manager.get_data(DC_CHAT_RECORD, [target, DCK_CHAT_TIME])

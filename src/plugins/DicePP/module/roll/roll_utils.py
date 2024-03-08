@@ -41,6 +41,17 @@ def match_outer_parentheses(input_str: str) -> int:
     raise ValueError("Input's parentheses is incomplete!")
 
 
+def clear_border_parentheses(input_str: str) -> bool:
+    """
+    删除输入字符串的首尾多余括号. 若不存在对应的), 抛出一个ValueError.
+    """
+    while input_str and match_outer_parentheses(input_str) == len(input_str)-1:
+        input_str = input_str[1:-1]
+    if input_str.count("(") != input_str.count(")"):
+        raise ValueError("Input's parentheses is incomplete!")
+    return input_str
+
+
 def remove_redundant_parentheses(input_str: str, readable: bool = True) -> str:
     """
     递归地去掉字符串中一些冗余的括号, 字符串必须不包含空格, 即连接符紧跟着括号

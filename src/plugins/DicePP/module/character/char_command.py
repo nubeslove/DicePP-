@@ -38,16 +38,16 @@ class _(DataChunkBase):
 
 @custom_user_command(readable_name="DND5E角色卡", priority=DPP_COMMAND_PRIORITY_DEFAULT+10,
                      flag=DPP_COMMAND_FLAG_CHAR | DPP_COMMAND_FLAG_DND, group_only=True)
-class CharacterDNDCommand(UserCommandBase):
+class CharacterCommand(UserCommandBase):
     """
-    DND角色卡指令
+    角色卡指令
     """
 
     def __init__(self, bot: Bot):
         super().__init__(bot)
-        bot.loc_helper.register_loc_text(LOC_CHAR_SET, "Already set your character", "成功设置角色卡")
-        bot.loc_helper.register_loc_text(LOC_CHAR_MISS, "Cannot find your character", "找不到有效的角色卡")
-        bot.loc_helper.register_loc_text(LOC_CHAR_DEL, "Already delete your character", "删除角色卡")
+        bot.loc_helper.register_loc_text(LOC_CHAR_SET, "成功设置角色卡", "成功设置角色卡")
+        bot.loc_helper.register_loc_text(LOC_CHAR_MISS, "无法找到有效的角色卡", "找不到有效的角色卡")
+        bot.loc_helper.register_loc_text(LOC_CHAR_DEL, "已经删除了你的角色卡", "删除角色卡")
         bot.loc_helper.register_loc_text(LOC_CHECK_RES, "{name} throw {check}\n{hint}\n{result}", "删除角色卡")
 
     def can_process_msg(self, msg_str: str, meta: MessageMetaData) -> Tuple[bool, bool, Any]:

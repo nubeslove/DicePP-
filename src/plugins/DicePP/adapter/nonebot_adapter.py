@@ -1,7 +1,7 @@
 """
 NoneBot API https://v2.nonebot.dev/api/plugin.html
 """
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any
 import asyncio
 from fastapi import FastAPI
 
@@ -13,12 +13,13 @@ from nonebot.adapters.onebot.v11.event import NoticeEvent, GroupIncreaseNoticeEv
 from nonebot.adapters.onebot.v11.event import RequestEvent, FriendRequestEvent, GroupRequestEvent
 from nonebot.adapters.onebot.v11.bot import Bot as NoneBot
 from nonebot.adapters.onebot.v11 import Message as CQMessage
+from nonebot.adapters.onebot.v11 import ActionFailed
 
 from core.bot import Bot as DicePPBot
 from core.communication import MessageMetaData, MessageSender, GroupMemberInfo, GroupInfo
 from core.communication import NoticeData, FriendAddNoticeData, GroupIncreaseNoticeData
 from core.communication import RequestData, FriendRequestData, JoinGroupRequestData, InviteGroupRequestData
-from core.command import BotCommandBase, BotSendMsgCommand, BotDelayCommand, BotLeaveGroupCommand
+from core.command import BotCommandBase, BotSendMsgCommand, BotDelayCommand, BotLeaveGroupCommand, BotSendForwardMsgCommand, BotSendFileCommand
 from utils.logger import dice_log
 
 from adapter.client_proxy import ClientProxy
@@ -31,7 +32,7 @@ try:
 except ValueError:
     dice_log("DPP API is not amounted because NoneBot has not been initialized")
 
-command_matcher = on_message()
+command_matcher = on_message(block=False)
 notice_matcher = on_notice()
 request_matcher = on_request()
 
@@ -59,23 +60,41 @@ class NoneBotClientProxy(ClientProxy):
     def __init__(self, bot: NoneBot):
         self.bot = bot
 
+    # noinspection PyBroadException
     async def process_bot_command(self, command: BotCommandBase):
-        dice_log(f"[Proxy Bot Command] {command}")
-        if isinstance(command, BotSendMsgCommand):
-            for target in command.targets:
-                if target.group_id:
-                    await self.bot.send_group_msg(group_id=int(target.group_id), message=CQMessage(command.msg))
-                else:
-                    await self.bot.send_private_msg(user_id=int(target.user_id), message=CQMessage(command.msg))
-        elif isinstance(command, BotLeaveGroupCommand):
-            try:
+        dice_log(f"[OneBot] [BotCommand] {command}")
+        try:
+            if isinstance(command, BotSendMsgCommand):
+                for target in command.targets:
+                    if target.group_id:
+                        await self.bot.send_group_msg(group_id=int(target.group_id), message=CQMessage(command.msg))
+                    else:
+                        await self.bot.send_private_msg(user_id=int(target.user_id), message=CQMessage(command.msg))
+            elif isinstance(command, BotLeaveGroupCommand):
                 await self.bot.set_group_leave(group_id=int(command.target_group_id))
-            except:
-                pass
-        elif isinstance(command, BotDelayCommand):
-            await asyncio.sleep(command.seconds)
-        else:
-            raise NotImplementedError("未定义的BotCommand类型")
+            elif isinstance(command, BotSendForwardMsgCommand):
+                try:
+                    for target in command.targets:
+                        await self.bot.call_api("send_group_forward_msg", group_id=int(target.group_id), messages=command.msg_json_list)
+                except:
+                    await self.bot.send_group_msg(group_id=int(target.group_id), message="合并转发失败！")
+                    for target in command.targets:
+                        for msg in command.msg:
+                            await self.bot.send_group_msg(group_id=int(target.group_id), message=CQMessage(msg))
+            elif isinstance(command, BotSendFileCommand):
+                try:
+                    for target in command.targets:
+                        await self.bot.call_api("upload_group_file", group_id=int(target.group_id), file=command.file, name=command.display_name)
+                except:
+                    await self.bot.send_group_msg(group_id=int(target.group_id), message="文件发送失败！")
+            elif isinstance(command, BotDelayCommand):
+                await asyncio.sleep(command.seconds)
+            else:
+                raise NotImplementedError("未定义的BotCommand类型")
+        except ActionFailed as e:
+            dice_log(f"[OneBot] [ActionFailed] {e}")
+        except Exception as e:
+            dice_log(f"[OneBot] [UnknownException] {e}")
 
     async def process_bot_command_list(self, command_list: List[BotCommandBase]):
         if len(command_list) > 1:
@@ -100,6 +119,22 @@ class NoneBotClientProxy(ClientProxy):
         group_member_info: Dict = await self.bot.get_group_member_info(group_id=int(group_id), user_id=int(user_id))
         return convert_group_member_info(group_member_info)
 
+    async def get_group_file_system_info(self, group_id: str) -> Any:
+        data = await bot.call_api("get_group_file_system_info", group_id=int(group_id))
+        return data
+
+    async def get_group_root_files(self, group_id: str) -> Any:
+        data = await bot.call_api("get_group_root_files", group_id=int(group_id))
+        return data
+
+    async def get_group_files_by_folder(self, group_id: str, folder_id: str) -> Any:
+        data = await bot.call_api("get_group_files_by_folder", group_id=int(group_id), folder_id=folder_id)
+        return data
+
+    async def get_group_file_url(self, group_id: str, file_id: str, bus_id: str) -> str:
+        url = await bot.call_api("get_group_file_url", group_id=int(group_id), file_id=file_id, busid=bus_id)
+        return url
+
 
 @command_matcher.handle()
 async def handle_command(bot: NoneBot, event: MessageEvent):
@@ -113,12 +148,12 @@ async def handle_command(bot: NoneBot, event: MessageEvent):
     if isinstance(event, GroupMessageEvent):
         group_id = str(event.group_id)
 
-    log_str = f"[Proxy Message] Bot \033[0;37m{bot.self_id}\033[0m receive message \033[0;33m{raw_msg}\033[0m from "
-    if group_id:
-        log_str += f"\033[0;34m|Group: {group_id} User: {user_id}|\033[0m"
-    else:
-        log_str += f"\033[0;35m|Private: {user_id}|\033[0m"
-    dice_log()
+    # log_str = f"[Proxy Message] Bot \033[0;37m{bot.self_id}\033[0m receive message \033[0;33m{raw_msg}\033[0m from "
+    # if group_id:
+    #     log_str += f"\033[0;34m|Group: {group_id} User: {user_id}|\033[0m"
+    # else:
+    #     log_str += f"\033[0;35m|Private: {user_id}|\033[0m"
+    # dice_log(log_str)
 
     sender = MessageSender(user_id, event.sender.nickname)
     sender.sex, sender.age, sender.card = event.sender.sex, event.sender.age, event.sender.card
@@ -148,7 +183,6 @@ async def handle_notice(bot: NoneBot, event: NoticeEvent):
     if data:
         await all_bots[bot.self_id].process_notice(data)
 
-
 @request_matcher.handle()
 async def handle_request(bot: NoneBot, event: RequestEvent):
     dice_log(f"[Proxy Request] {event.get_event_name()}")
@@ -171,9 +205,12 @@ async def handle_request(bot: NoneBot, event: RequestEvent):
         elif (approve is not None) and (not approve):
             await event.reject(bot)
 
+
 # 全局Driver
 try:
     driver = nonebot.get_driver()
+
+
     # 在Bot连接时调用
 
     @driver.on_bot_connect
