@@ -176,64 +176,6 @@ class ModeCommand(UserCommandBase):
                 feedback = self.bot.loc_helper.format_loc_text(LOC_MODE_NOT_EXIST)+self.bot.loc_helper.format_loc_text(LOC_MODE_LIST, modes = "、".join(self.mode_dict.keys()))
         
         return feedback
-            
-        
-                
-        '''
-        if mode in ["coc","coc7"]:
-            self.clear_group_config(group_id)
-            self.set_group_config(group_id,"mode","COC")
-            self.set_group_config(group_id,"default_dice",100)
-            self.set_group_config(group_id,"query_database","COC7")
-            return "已切换至COC7模式（默认100面骰点，查询数据库使用COC7.db（如果有））"
-        elif mode in ["dnd3","dnd3r"]:
-            self.clear_group_config(group_id)
-            self.set_group_config(group_id,"mode","DND")
-            self.set_group_config(group_id,"default_dice",20)
-            self.set_group_config(group_id,"query_database","DND3R")
-            return "已切换至DND3R模式（默认20面骰点，查询数据库使用DND3R.db（如果有））"
-        elif mode in ["dnd4","dnd4e"]:
-            self.clear_group_config(group_id)
-            self.set_group_config(group_id,"mode","DND")
-            self.set_group_config(group_id,"default_dice",20)
-            self.set_group_config(group_id,"query_database","DND4E")
-            feedback = "已切换至DND4E模式（默认20面骰点，查询数据库使用DND4E.db（如果有））"
-        elif mode in ["dnd","dnd5","dnd5e"]:
-            self.clear_group_config(group_id)
-            self.set_group_config(group_id,"mode","DND")
-            self.set_group_config(group_id,"default_dice",20)
-            self.set_group_config(group_id,"query_database","DND5E")
-            return "已切换至DND5E模式（默认20面骰点，查询数据库使用DND5E.db（如果有））"
-        elif mode in ["pf","pf1","pf1e"]:
-            self.clear_group_config(group_id)
-            self.set_group_config(group_id,"mode","PF1E")
-            self.set_group_config(group_id,"default_dice",20)
-            self.set_group_config(group_id,"query_database","PF1E")
-            return "已切换至PF1E模式（默认20面骰点，查询数据库使用PF1E.db（如果有））"
-        elif mode in ["pf2","pf2e"]:
-            self.clear_group_config(group_id)
-            self.set_group_config(group_id,"mode","PF2E")
-            self.set_group_config(group_id,"default_dice",20)
-            self.set_group_config(group_id,"query_database","PF2E")
-            return "已切换至PF2E模式（默认20面骰点，查询数据库使用PF2E.db（如果有）））"
-        elif mode in ["ygo","游戏王"]:
-            self.clear_group_config(group_id)
-            self.set_group_config(group_id,"mode","YGO")
-            self.set_group_config(group_id,"roll_dnd_enable",False)
-            self.set_group_config(group_id,"roll_coc_enable",False)
-            self.set_group_config(group_id,"query_database","YGO")
-            return "已切换至游戏王模式（查询数据库使用YGO.db（如果有））"
-        elif mode in ["nechronica","后日谈"]:
-            self.clear_group_config(group_id)
-            self.set_group_config(group_id,"mode","Nechronica")
-            self.set_group_config(group_id,"roll_dnd_enable",False)
-            self.set_group_config(group_id,"roll_coc_enable",False)
-            self.set_group_config(group_id,"default_dice",10)
-            self.set_group_config(group_id,"query_database","NECHRONICA")
-            return "已切换至永夜后日谈模式（默认10面骰点，查询数据库使用NECHRONICA.db（如果有））"
-        else:
-            return "可选模式：DND、COC、PF2E、YGO（除了dnd其实功能都不是很完善）"
-        '''
 
     def get_help(self, keyword: str, meta: MessageMetaData) -> str:
         if keyword == "config" or keyword == "mode":  # help后的接着的内容
