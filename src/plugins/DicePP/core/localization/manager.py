@@ -92,7 +92,7 @@ class LocalizationManager:
         has_chat: bool = (len(self.all_chat_texts) != 0)
         if not has_chat:
             add_default_chat()
-        dice_log(f"[Local] [ChatLoad] 成功读取本地化文件 {self.chat_data_path.replace(ROOT_DATA_PATH, '~')}")
+        dice_log(f"[Local] [ChatLoad] 成功读取自定义对话文件 {self.chat_data_path.replace(ROOT_DATA_PATH, '~')}")
         workbook.close()
 
     def save_chat(self):

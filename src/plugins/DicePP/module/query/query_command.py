@@ -337,6 +337,7 @@ class QueryCommand(UserCommandBase):
 
         bot.cfg_helper.register_config(CFG_QUERY_ENABLE, "1", "查询指令开关")
         bot.cfg_helper.register_config(CFG_QUERY_DATA_PATH, "./QueryData", "查询指令的数据来源, .代表Data文件夹")
+        #已弃用，请使用mode_command那边的CFG。
 
     def delay_init(self) -> List[str]:
         # 从本地文件中读取数据库

@@ -21,7 +21,7 @@ DEFAULT_GROUP_CONFIG = {
     #基础内容
     "backroom" : False,
     "default_dice" : 20,
-    "mode" : "DND",
+    "mode" : "",
     #功能开关
     "roll_dnd_enable" : True,
     "roll_coc_enable" : False,
@@ -48,7 +48,7 @@ class _(DataChunkBase):
                      flag=DPP_COMMAND_FLAG_MANAGE, group_only=True)
 class GroupconfigCommand(UserCommandBase):
     """
-    .set 群配置指令 & .mode 群模式设置指令
+    .config 群配置指令
     """
 
     def __init__(self, bot: Bot):
@@ -73,8 +73,6 @@ class GroupconfigCommand(UserCommandBase):
                 return should_proc, should_pass, None
         elif msg_str.startswith(".模式"):
             hint =  msg_str[3:].strip()
-        elif msg_str.startswith(".mode"):
-            hint =  msg_str[5:].strip()
         elif msg_str.startswith(".chat"):
             hint =  "set chat " + msg_str[5:].strip()
         elif msg_str.startswith(".dset"):
@@ -99,9 +97,6 @@ class GroupconfigCommand(UserCommandBase):
                 feedback = "已将本群默认骰设置为 " + str(dice) + " 面!"
             except:
                 feedback = "无效数值"
-        elif msg_str.startswith(".mode"):
-            if arg_num >= 1:
-                feedback = self.switch_mode(meta.group_id,arg_list[0])
         elif arg_list[0] == "set":
             if arg_num == 3:
                 if arg_list[2] in ["真","是","开","true","yes","on"]:
@@ -134,61 +129,6 @@ class GroupconfigCommand(UserCommandBase):
             
 
         return [BotSendMsgCommand(self.bot.account, feedback, [port])]
-    
-    def switch_mode(self, group_id: str, mode: str) -> str:
-        if mode in ["coc","coc7"]:
-            self.clear_group_config(group_id)
-            self.set_group_config(group_id,"mode","COC")
-            self.set_group_config(group_id,"default_dice",100)
-            self.set_group_config(group_id,"query_database","COC7")
-            return "已切换至COC7模式（默认100面骰点，查询数据库使用COC7.db（如果有））"
-        elif mode in ["dnd3","dnd3r"]:
-            self.clear_group_config(group_id)
-            self.set_group_config(group_id,"mode","DND")
-            self.set_group_config(group_id,"default_dice",20)
-            self.set_group_config(group_id,"query_database","DND3R")
-            return "已切换至DND3R模式（默认20面骰点，查询数据库使用DND3R.db（如果有））"
-        elif mode in ["dnd4","dnd4e"]:
-            self.clear_group_config(group_id)
-            self.set_group_config(group_id,"mode","DND")
-            self.set_group_config(group_id,"default_dice",20)
-            self.set_group_config(group_id,"query_database","DND4E")
-            feedback = "已切换至DND4E模式（默认20面骰点，查询数据库使用DND4E.db（如果有））"
-        elif mode in ["dnd","dnd5","dnd5e"]:
-            self.clear_group_config(group_id)
-            self.set_group_config(group_id,"mode","DND")
-            self.set_group_config(group_id,"default_dice",20)
-            self.set_group_config(group_id,"query_database","DND5E")
-            return "已切换至DND5E模式（默认20面骰点，查询数据库使用DND5E.db（如果有））"
-        elif mode in ["pf","pf1","pf1e"]:
-            self.clear_group_config(group_id)
-            self.set_group_config(group_id,"mode","PF1E")
-            self.set_group_config(group_id,"default_dice",20)
-            self.set_group_config(group_id,"query_database","PF1E")
-            return "已切换至PF1E模式（默认20面骰点，查询数据库使用PF1E.db（如果有））"
-        elif mode in ["pf2","pf2e"]:
-            self.clear_group_config(group_id)
-            self.set_group_config(group_id,"mode","PF2E")
-            self.set_group_config(group_id,"default_dice",20)
-            self.set_group_config(group_id,"query_database","PF2E")
-            return "已切换至PF2E模式（默认20面骰点，查询数据库使用PF2E.db（如果有）））"
-        elif mode in ["ygo","游戏王"]:
-            self.clear_group_config(group_id)
-            self.set_group_config(group_id,"mode","YGO")
-            self.set_group_config(group_id,"roll_dnd_enable",False)
-            self.set_group_config(group_id,"roll_coc_enable",False)
-            self.set_group_config(group_id,"query_database","YGO")
-            return "已切换至游戏王模式（查询数据库使用YGO.db（如果有））"
-        elif mode in ["nechronica","后日谈"]:
-            self.clear_group_config(group_id)
-            self.set_group_config(group_id,"mode","Nechronica")
-            self.set_group_config(group_id,"roll_dnd_enable",False)
-            self.set_group_config(group_id,"roll_coc_enable",False)
-            self.set_group_config(group_id,"default_dice",10)
-            self.set_group_config(group_id,"query_database","NECHRONICA")
-            return "已切换至永夜后日谈模式（默认10面骰点，查询数据库使用NECHRONICA.db（如果有））"
-        else:
-            return "可选模式：DND、COC、PF2E、YGO（除了dnd其实功能都不是很完善）"
 
     def set_group_config(self, group_id: str, name: str, data: Any) -> None:
         self.bot.data_manager.set_data(DC_GROUPCONFIG, [group_id,name],data)
@@ -201,6 +141,12 @@ class GroupconfigCommand(UserCommandBase):
 
     def clear_group_config(self, group_id: str) -> None:
         self.bot.data_manager.delete_data(DC_GROUPCONFIG, [group_id])
+    
+    def update_group_config(self, group_id: str, setting: List[str], var:List[str]):
+        self.clear_group_config(group_id) 
+        for index in range(len(setting)):
+            self.set_group_config(group_id,setting[index],var[index])
+
 
     def get_help(self, keyword: str, meta: MessageMetaData) -> str:
         if keyword == "config" or keyword == "mode":  # help后的接着的内容
@@ -215,11 +161,9 @@ class GroupconfigCommand(UserCommandBase):
                             ".config show" \
                             "显示当前群已设置的全部设置名" \
                             ".config list" \
-                            "显示全部可用设置" \
-                            ".mode dnd/coc/ygo" \
-                            "套用模式设置" 
+                            "显示全部可用设置"
             return feedback
         return ""
 
     def get_description(self) -> str:
-        return ".welcome 设置入群欢迎词"  # help指令中返回的内容
+        return ".config 群配置系统"  # help指令中返回的内容
