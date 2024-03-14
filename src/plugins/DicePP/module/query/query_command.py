@@ -33,6 +33,8 @@ LOC_QUERY_MULTI_RESULT_CATALOGUE = "query_multi_result_catalogue"
 LOC_QUERY_NO_RESULT = "query_no_result"
 LOC_QUERY_TOO_MUCH_RESULT = "query_too_much_result"
 LOC_QUERY_KEY_NUM_EXCEED = "query_key_num_exceed"
+LOC_QUERY_CELL_BOOK = "query_cell_book"
+LOC_QUERY_CELL_REDIRECT = "query_cell_redirect"
 
 CFG_QUERY_ENABLE = "query_enable"
 CFG_QUERY_DATA_PATH = "query_data_path"
@@ -323,7 +325,7 @@ class QueryCommand(UserCommandBase):
         reg_loc(LOC_QUERY_RESULT, "{result}", "查询成功时返回的内容, result为single_result或multi_result")
         reg_loc(LOC_QUERY_SINGLE_RESULT, "{keyword} {en_keyword}{tag}\n{content}{book}{redirect}",
                 "查询找到唯一条目, keyword: 条目名称, en_keyword: 条目英文名, content: 词条内容"
-                ", book: 换行+来源*, redirect: 换行+重定向自*, tag: 换行+标签*  (*如果有则显示, 没有则忽略)")
+                ", book: 来源*, redirect: 重定向自*, tag: 换行+标签*  (*如果有则显示, 没有则忽略)")
         reg_loc(LOC_QUERY_MULTI_RESULT_CATALOGUE, "请选择一个分类",
                 "查询找到多个条目时选择分类的文本提示")
         reg_loc(LOC_QUERY_MULTI_RESULT_PAGE, "{page_cur}/{page_total}页, -上一页/下一页+",
@@ -334,6 +336,10 @@ class QueryCommand(UserCommandBase):
         reg_loc(LOC_QUERY_TOO_MUCH_RESULT, "查询到过多内容...", "查询到过多内容时的提示")
         reg_loc(LOC_QUERY_KEY_NUM_EXCEED, "关键词数量上限{key_num}个",
                 "用户查询时使用过多关键字时的提示 {key_num}为关键字数量上限")
+        reg_loc(LOC_QUERY_CELL_BOOK, "\n来源：{book}",
+                "来源展示格式，book: 来源*")
+        reg_loc(LOC_QUERY_CELL_REDIRECT, "\n重定向自：{redirect}",
+                "重定向展示格式，redirect: 重定向自*")
 
         bot.cfg_helper.register_config(CFG_QUERY_ENABLE, "1", "查询指令开关")
         bot.cfg_helper.register_config(CFG_QUERY_DATA_PATH, "./QueryData", "查询指令的数据来源, .代表Data文件夹")
@@ -1278,16 +1284,16 @@ class QueryCommand(UserCommandBase):
         # 最基本的单条目返回文本
         item_content = item.data_content if item.data_content else "[内容为空，等待热心小编补充]"
         item_tag = "\n" + item.data_tag if (item.data_tag and not item.data_tag.startswith("/")) else ""
-        item_book = "\n来源: " + item.data_from if item.data_from else ""
-        item_redirect = "\n重定向自: " + item.redirect_by if item.redirect_by else ""
+        item_book = self.format_loc(LOC_QUERY_CELL_BOOK, book=item.data_from) if item.data_from else ""
+        item_redirect = self.format_loc(LOC_QUERY_CELL_REDIRECT, redirect=item.redirect_by) if item.redirect_by else ""
         return self.format_loc(LOC_QUERY_SINGLE_RESULT, keyword=item.data_name, en_keyword=item.data_name_en, content=item_content, tag=item_tag, book=item_book, redirect=item_redirect)
 
     def format_item_redirects_feedback(self, item: QueryData) -> str:
         # 最基本的单条目返回文本
         item_content = item.data_content if item.data_content else "[内容为空，等待热心小编补充]"
         item_tag = "\n" + item.data_tag if (item.data_tag and not item.data_tag.startswith("/")) else ""
-        item_book = "\n来源: " + item.data_from if item.data_from else ""
-        item_redirect = "\n重定向自: " + item.redirect_by if item.redirect_by else ""
+        item_book = self.format_loc(LOC_QUERY_CELL_BOOK, book=item.data_from) if item.data_from else ""
+        item_redirect = self.format_loc(LOC_QUERY_CELL_REDIRECT, redirect=item.redirect_by) if item.redirect_by else ""
         return self.format_loc(LOC_QUERY_SINGLE_RESULT, keyword=item.data_name, en_keyword=item.data_name_en, content=item_content, tag=item_tag, book=item_book, redirect=item_redirect)
 
     @staticmethod

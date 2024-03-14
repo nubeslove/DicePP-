@@ -8,6 +8,7 @@ from core.command import BotCommandBase, BotSendMsgCommand
 from core.communication import MessageMetaData, PrivateMessagePort, GroupMessagePort
 from .initiative_list import DC_INIT
 from utils.string import match_substring
+from utils.cq_code import get_cq_at
 
 LOC_BR_NEW = "battleroll_new"
 LOC_BR_ROUND = "battleroll_round"
@@ -19,6 +20,7 @@ LOC_BR_NO_INIT = "battleroll_no_init"
 LOC_BR_TURN_END = "battleroll_turn_end"
 LOC_BR_ROUND_NEW = "battleroll_round_new"
 LOC_BR_TURN_NEW = "battleroll_turn_new"
+LOC_BR_TURN_NEW_WITH_AT = "battleroll_turn_new_with_at"
 LOC_BR_ERROR_NOT_NUMBER = "battleroll_error_not_number"
 LOC_BR_ERROR_TOO_SMALL = "battleroll_error_too_small"
 LOC_BR_ERROR_TOO_BIG = "battleroll_error_too_big"
@@ -40,21 +42,22 @@ class BattlerollCommand(UserCommandBase):
 
     def __init__(self, bot: Bot):
         super().__init__(bot)
-        bot.loc_helper.register_loc_text(LOC_BR_NEW, "已创建新战斗轮。清除先攻表、BUFF表、当前回合", "创建战斗轮")
-        bot.loc_helper.register_loc_text(LOC_BR_ROUND, "现在是第{round}轮第{turn}回合，{turn_name}的回合", "查询当前轮次与回合数")
-        bot.loc_helper.register_loc_text(LOC_BR_ROUND_MOD, "现在变成第{round}轮了", "修改当前轮次")
-        bot.loc_helper.register_loc_text(LOC_BR_TURN_MOD, "现在变成第{round}轮的第{turn}回合了", "修改当前回合")
-        bot.loc_helper.register_loc_text(LOC_BR_ROUND_SHOW, "现在是{turn_name}的回合", "编辑后显示的当前轮次与回合数")
-        bot.loc_helper.register_loc_text(LOC_BR_NO_INIT, "目前先攻列表为空，故不存在回合与轮次", "当没有先攻列表的情况下询问回合")
-        bot.loc_helper.register_loc_text(LOC_BR_TURN_END, "{turn_name}的回合结束了", "玩家或DM宣言回合结束")
-        bot.loc_helper.register_loc_text(LOC_BR_ROUND_NEW, "新的一轮，现在是第{round}轮", "玩家或DM开始新的回合")
-        bot.loc_helper.register_loc_text(LOC_BR_TURN_NEW, "现在是{turn_name}的回合", "玩家或DM开始新的回合")
+        bot.loc_helper.register_loc_text(LOC_BR_NEW, "已创建新战斗轮。清除先攻表、BUFF表、当前回合。", "。br与。ed的战斗轮回合制系统，战斗轮重启")
+        bot.loc_helper.register_loc_text(LOC_BR_ROUND, "现在是第{round}轮第{turn}回合，{turn_name}的回合。", "查询当前轮次与回合数，round：轮次，turn：回合，turn_name：回合角色")
+        bot.loc_helper.register_loc_text(LOC_BR_ROUND_MOD, "现在变成第{round}轮了。", "修改当前轮次，round：轮次，turn：回合，turn_name：回合角色")
+        bot.loc_helper.register_loc_text(LOC_BR_TURN_MOD, "现在变成第{round}轮的第{turn}回合了。", "修改当前回合，round：轮次，turn：回合，turn_name：回合角色")
+        bot.loc_helper.register_loc_text(LOC_BR_ROUND_SHOW, "现在是{turn_name}的回合。", "编辑后显示的当前轮次与回合数，round：轮次，turn：回合，turn_name：回合角色")
+        bot.loc_helper.register_loc_text(LOC_BR_NO_INIT, "目前先攻列表为空，故不存在回合与轮次。", "当没有先攻列表的情况下询问回合")
+        bot.loc_helper.register_loc_text(LOC_BR_TURN_END, "{turn_name}的回合结束了。", "玩家或DM宣言回合结束，round：轮次，turn：回合，turn_name：回合角色")
+        bot.loc_helper.register_loc_text(LOC_BR_ROUND_NEW, "新的一轮，现在是第{round}轮。", "轮次见底之后到达下一轮的回复，round：轮次，turn：回合，turn_name：回合角色")
+        bot.loc_helper.register_loc_text(LOC_BR_TURN_NEW, "现在是{turn_name}的回合。", "新的回合开始，turn_name：回合角色")
+        bot.loc_helper.register_loc_text(LOC_BR_TURN_NEW_WITH_AT, "现在是{turn_name}的回合。请玩家{at}开始行动。", "新的回合开始，如果本回合是玩家角色（没有昵称）则at该玩家，round：轮次，turn：回合，turn_name：回合角色，at：at目标玩家")
         bot.loc_helper.register_loc_text(LOC_BR_ERROR_NOT_NUMBER, "这不是数字。", "当玩家输入的回合不为正整数时的报错")
-        bot.loc_helper.register_loc_text(LOC_BR_ERROR_TOO_SMALL, "这个数字太小了", "当玩家输入一个过小的值时的报错")
-        bot.loc_helper.register_loc_text(LOC_BR_ERROR_TOO_BIG, "这个数字太大了", "当玩家输入一个过大的值时的报错")
-        bot.loc_helper.register_loc_text(LOC_BR_ERROR_NOT_FOUND, "没有找到这个回合", "当因没有对应回合而找不到对应回合时的回复")
-        bot.loc_helper.register_loc_text(LOC_BR_ERROR_TOO_MUCH_FOUND, "找到复数回合，请换一个关键词", "当因出现复数可能回合而找不到对应回合时的回复")
-        bot.loc_helper.register_loc_text(LOC_BR_ERROR_NOT_YOUR_TURN, "现在不是你的回合。该指令无法使用", "当出现一个要求玩家自己回合才能使用的指令时提示的报错")
+        bot.loc_helper.register_loc_text(LOC_BR_ERROR_TOO_SMALL, "这个数字太小了。", "当玩家输入一个过小的值时的报错")
+        bot.loc_helper.register_loc_text(LOC_BR_ERROR_TOO_BIG, "这个数字太大了。", "当玩家输入一个过大的值时的报错")
+        bot.loc_helper.register_loc_text(LOC_BR_ERROR_NOT_FOUND, "没有找到这个回合。", "当因没有对应回合而找不到对应回合时的回复")
+        bot.loc_helper.register_loc_text(LOC_BR_ERROR_TOO_MUCH_FOUND, "找到复数回合，请换一个关键词。", "当因出现复数可能回合而找不到对应回合时的回复")
+        bot.loc_helper.register_loc_text(LOC_BR_ERROR_NOT_YOUR_TURN, "现在不是你的回合。该指令无法使用。", "当出现一个要求玩家自己回合才能使用的指令时提示的报错")
 
     def can_process_msg(self, msg_str: str, meta: MessageMetaData) -> Tuple[bool, bool, Any]:
         should_proc: bool = False
@@ -95,16 +98,16 @@ class BattlerollCommand(UserCommandBase):
     def process_msg(self, msg_str: str, meta: MessageMetaData, hint: Any) -> List[BotCommandBase]:
         port = GroupMessagePort(meta.group_id) if meta.group_id else PrivateMessagePort(meta.user_id)
         # 解析语句
-        feedback: str = ""
+        feedbacks: List[str] = []
         mode: str = hint[0]
         arg_str: str = hint[1]
         if mode == "battleroll":
             # 清理先攻
             try:
                 self.bot.data_manager.delete_data(DC_INIT, [meta.group_id])
-                feedback += self.format_loc(LOC_BR_NEW)
+                feedbacks.append(self.format_loc(LOC_BR_NEW))
             except DataManagerError:
-                feedback += "出错！"
+                feedbacks.append("出错！")
         elif mode == "turn" or mode == "round":
             try:
                 init_data: dict = self.bot.data_manager.get_data(DC_INIT, [meta.group_id])
@@ -116,7 +119,7 @@ class BattlerollCommand(UserCommandBase):
             target_turn: int = init_data.turn
             # 若无额外数值则显示当前回合，若额外有个数值则修改回合
             if not arg_str:
-                feedback += self.format_loc(LOC_BR_ROUND,round=str(target_round),turn=str(target_turn),turn_name=init_data.entities[target_turn-1].name)
+                feedback = self.format_loc(LOC_BR_ROUND,round=str(target_round),turn=str(target_turn),turn_name=init_data.entities[target_turn-1].name)
                 return [BotSendMsgCommand(self.bot.account, feedback, [port])]
             elif arg_str.startswith("+"): # 检查是否为直接增加当前回合/轮次数
                 modify_var: int = 0
@@ -125,8 +128,7 @@ class BattlerollCommand(UserCommandBase):
                 elif arg_str[1:].isdigit():
                     modify_var = int(arg_str[1:])
                 else:
-                    feedback += self.format_loc(LOC_BR_ERROR_NOT_NUMBER)
-                    return [BotSendMsgCommand(self.bot.account, feedback, [port])]
+                    return [BotSendMsgCommand(self.bot.account, self.format_loc(LOC_BR_ERROR_NOT_NUMBER), [port])]
                 if mode == "turn":
                     target_turn += modify_var
                 else: # if mode == "round"
@@ -137,8 +139,7 @@ class BattlerollCommand(UserCommandBase):
                 elif arg_str[1:].isdigit():
                     modify_var = int(arg_str[1:])
                 else:
-                    feedback += self.format_loc(LOC_BR_ERROR_NOT_NUMBER)
-                    return [BotSendMsgCommand(self.bot.account, feedback, [port])]
+                    return [BotSendMsgCommand(self.bot.account, self.format_loc(LOC_BR_ERROR_NOT_NUMBER), [port])]
                 if mode == "turn":
                     target_turn -= modify_var
                 else: # if mode == "round"
@@ -151,14 +152,11 @@ class BattlerollCommand(UserCommandBase):
                         target_round = int(arg_str[1:])
                     # 因为使用等于号，还得检查是否超出轮内回合数
                     if target_turn > init_data.turns_in_round:
-                        feedback += self.format_loc(LOC_BR_ERROR_TOO_BIG)
-                        return [BotSendMsgCommand(self.bot.account, feedback, [port])]
+                        return [BotSendMsgCommand(self.bot.account, self.format_loc(LOC_BR_ERROR_TOO_BIG), [port])]
                     elif target_turn < 1:
-                        feedback += self.format_loc(LOC_BR_ERROR_TOO_SMALL)
-                        return [BotSendMsgCommand(self.bot.account, feedback, [port])]
+                        return [BotSendMsgCommand(self.bot.account, self.format_loc(LOC_BR_ERROR_TOO_SMALL), [port])]
                 else:
-                    feedback += self.format_loc(LOC_BR_ERROR_NOT_NUMBER)
-                    return [BotSendMsgCommand(self.bot.account, feedback, [port])]
+                    return [BotSendMsgCommand(self.bot.account, self.format_loc(LOC_BR_ERROR_NOT_NUMBER), [port])]
             elif arg_str.isdigit(): #检查是否为数值，是的话直接替换，同等号
                 if mode == "turn":
                     target_turn = int(arg_str)
@@ -175,19 +173,16 @@ class BattlerollCommand(UserCommandBase):
                 elif match_num == 0:  # 没有同名条目, 进入模糊搜索
                     possible_res: List[str] = match_substring(arg_str, name_list)
                     if len(possible_res) == 0:  # 没有结果
-                        feedback += self.format_loc(LOC_BR_ERROR_NOT_FOUND)
-                        return [BotSendMsgCommand(self.bot.account, feedback, [port])]
+                        return [BotSendMsgCommand(self.bot.account, self.format_loc(LOC_BR_ERROR_NOT_FOUND), [port])]
                     elif len(possible_res) > 1:  # 多个可能的结果
-                        feedback += self.format_loc(LOC_BR_ERROR_TOO_MUCH_FOUND)
-                        return [BotSendMsgCommand(self.bot.account, feedback, [port])]
+                        return [BotSendMsgCommand(self.bot.account, self.format_loc(LOC_BR_ERROR_TOO_MUCH_FOUND), [port])]
                     elif len(possible_res) == 1:
                         for i, entity in enumerate(init_data.entities):
                             if entity.name == possible_res[0]:
                                 target_turn = i + 1
                                 break
                 else: #if match_num > 1:  # 多于一个同名条目
-                    feedback += self.format_loc(LOC_BR_ERROR_TOO_MUCH_FOUND)
-                    return [BotSendMsgCommand(self.bot.account, feedback, [port])]
+                    return [BotSendMsgCommand(self.bot.account, self.format_loc(LOC_BR_ERROR_TOO_MUCH_FOUND), [port])]
             # 经过修改后，检查是否回合超出轮内回合数
             if target_turn > init_data.turns_in_round:
                 target_turn -= 1
@@ -200,28 +195,20 @@ class BattlerollCommand(UserCommandBase):
             # 修改回合数与轮次数，并修改数据
             if init_data.round != target_round:
                 init_data.round = target_round
-                if len(feedback) > 0:
-                    feedback += "\n"
-                feedback += self.format_loc(LOC_BR_ROUND_MOD,round=str(target_round))
+                feedbacks.append(self.format_loc(LOC_BR_ROUND_MOD,round=str(target_round)))
             if init_data.turn != target_turn:
                 init_data.turn = target_turn
-                if len(feedback) > 0:
-                    feedback += "\n"
-                feedback += self.format_loc(LOC_BR_TURN_MOD,turn=str(target_turn))
+                feedbacks.append(self.format_loc(LOC_BR_TURN_MOD,turn=str(target_turn)))
             self.bot.data_manager.set_data(DC_INIT, [meta.group_id], init_data)
             # 更新玩家姓名
             if init_data.entities[target_turn-1].owner:  
                 init_data.entities[target_turn-1].name = self.bot.get_nickname(init_data.entities[target_turn-1].owner, meta.group_id)
-            if len(feedback) > 0:
-                feedback += "\n"
-            feedback += self.format_loc(LOC_BR_ROUND_SHOW,turn_name=init_data.entities[target_turn-1].name)
-            feedback = feedback.strip()
+            feedbacks.append(self.format_loc(LOC_BR_ROUND_SHOW,turn_name=init_data.entities[target_turn-1].name))
         elif mode == "end":
             try:
                 init_data: dict = self.bot.data_manager.get_data(DC_INIT, [meta.group_id])
             except DataManagerError:
-                feedback = self.format_loc(LOC_BR_NO_INIT)
-                return [BotSendMsgCommand(self.bot.account, feedback, [port])]
+                return [BotSendMsgCommand(self.bot.account, self.format_loc(LOC_BR_NO_INIT), [port])]
             # 不需要再过排序了，现在自动排序的
             # init_data.entities = sorted(init_data.entities, key=lambda x: -x.init)
             round: int = init_data.round
@@ -229,22 +216,27 @@ class BattlerollCommand(UserCommandBase):
             # 更新回合结束者的名字
             if init_data.entities[turn-1].owner:
                 init_data.entities[turn-1].name = self.bot.get_nickname(init_data.entities[turn-1].owner, meta.group_id)
-            feedback += self.format_loc(LOC_BR_TURN_END,round=str(round),turn=str(turn),turn_name=init_data.entities[turn-1].name) + "\n"
+            feedbacks.append(self.format_loc(LOC_BR_TURN_END,round=str(round),turn=str(turn),turn_name=init_data.entities[turn-1].name))
+            # 回合数+1
             turn += 1
+            # 经过修改后，检查是否回合超出轮内回合数
             if turn > init_data.turns_in_round:
                 turn -= init_data.turns_in_round
                 round += 1
-                feedback += self.format_loc(LOC_BR_ROUND_NEW,round=str(round),turn=str(turn),turn_name=init_data.entities[turn-1].name) + "\n"
+                feedbacks.append(self.format_loc(LOC_BR_ROUND_NEW,round=str(round),turn=str(turn),turn_name=init_data.entities[turn-1].name))
             # 更新回合开始者的名字
             if init_data.entities[turn-1].owner:
-                init_data.entities[turn-1].name = self.bot.get_nickname(init_data.entities[turn-1].owner, meta.group_id)
-            feedback += self.format_loc(LOC_BR_TURN_NEW,round=str(round),turn=str(turn),turn_name=init_data.entities[turn-1].name)
+                nickname = self.bot.get_nickname(init_data.entities[turn-1].owner, meta.group_id)
+                init_data.entities[turn-1].name = nickname
+                feedbacks.append(self.format_loc(LOC_BR_TURN_NEW_WITH_AT,round=str(round),turn=str(turn),turn_name=nickname,at=get_cq_at(init_data.entities[turn-1].owner)))
+            else:
+                feedbacks.append(self.format_loc(LOC_BR_TURN_NEW,round=str(round),turn=str(turn),turn_name=init_data.entities[turn-1].name))
             init_data.round = round
             init_data.turn = turn
             init_data.first_turn = False
             self.bot.data_manager.set_data(DC_INIT, [meta.group_id], init_data)
 
-        return [BotSendMsgCommand(self.bot.account, feedback, [port])]
+        return [BotSendMsgCommand(self.bot.account, "\n".join([feedback.strip() for feedback in feedbacks if feedback != ""]), [port]) ]
 
     def get_help(self, keyword: str, meta: MessageMetaData) -> str:
         if keyword == "br" or keyword == "战斗轮":  # help后的接着的内容
@@ -260,4 +252,4 @@ class BattlerollCommand(UserCommandBase):
         return ""
 
     def get_description(self) -> str:
-        return ".xxx 指令描述"  # help指令中返回的内容
+        return ".br/turn/round/skip/ed 战斗轮指令"  # help指令中返回的内容
