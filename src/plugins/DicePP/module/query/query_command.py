@@ -38,6 +38,7 @@ LOC_QUERY_CELL_REDIRECT = "query_cell_redirect"
 
 CFG_QUERY_ENABLE = "query_enable"
 CFG_QUERY_DATA_PATH = "query_data_path"
+CFG_QUERY_PRIVATE_DATABASE = "query_private_database"
 
 QUERY_ITEM_FIELD_DESC_DEFAULT_LEN = 20  # 默认用前多少个字符作为默认Description
 QUERY_SPLIT_LINE_LEN = 20  # 默认如何分割过长查询文本
@@ -53,11 +54,12 @@ RECORD_CLEAN_FREQ = 50  # 每隔多少次查询指令尝试清理一次查询记
 QUERY_DELETE_MAGICWORD = "DELETE"  # 删除查询条目必须回复的密文
 
 class QueryData:
-    def __init__(self,data_str: List[str],redirect_by: str = ""):
+    def __init__(self,data_str: List[str],redirect_by: str = "",database: str = "DND5E"):
         """单条被查询的数据"""
         self.original_data = data_str
         self.hash_word = self.original_data[0]+"#"+self.original_data[2]+"#"+self.original_data[3]
         self.redirect_by = redirect_by
+        self.database = database
 
     def data_extend(self):
         self.data_name = self.original_data[0]
@@ -342,7 +344,8 @@ class QueryCommand(UserCommandBase):
                 "重定向展示格式，redirect: 重定向自*")
 
         bot.cfg_helper.register_config(CFG_QUERY_ENABLE, "1", "查询指令开关")
-        bot.cfg_helper.register_config(CFG_QUERY_DATA_PATH, "./QueryData", "查询指令的数据来源, .代表Data文件夹")
+        bot.cfg_helper.register_config(CFG_QUERY_DATA_PATH, "./QueryData", "查询指令的数据来源，已弃用，请勿修改")
+        bot.cfg_helper.register_config(CFG_QUERY_PRIVATE_DATABASE, "DND5E", "查询指令私聊时默认使用的数据库，群聊使用数据库以群配置为准")
         #已弃用，请使用mode_command那边的CFG。
 
     def delay_init(self) -> List[str]:
@@ -377,7 +380,7 @@ class QueryCommand(UserCommandBase):
                             if not record.data[0].data_name and not record.data[0].data_name_en:
                                 mode, arg_str = "feedback", "查询条目的名称或英文不能为空！"
                             else:
-                                database = self.bot.data_manager.get_data(DC_GROUPCONFIG,[meta.group_id,"query_database"],default_val="DND5E")
+                                database = record.data[0].database
                                 self.record_dict[port].edit_commit(CONNECTED_QUERY_DATABASES[database],DATABASE_CURSOR[database])
                                 del self.record_dict[port]
                                 mode, arg_str = "feedback", "已结束本次编辑并保存"
@@ -388,7 +391,7 @@ class QueryCommand(UserCommandBase):
                             should_proc = True
                         elif msg_word == QUERY_DELETE_MAGICWORD:  # 删除条目
                             if not record.edit_new:
-                                database = self.bot.data_manager.get_data(DC_GROUPCONFIG,[meta.group_id,"query_database"],default_val="DND5E")
+                                database = record.data[0].database
                                 self.record_dict[port].delete(CONNECTED_QUERY_DATABASES[database],DATABASE_CURSOR[database])
                                 del self.record_dict[port]
                                 mode, arg_str = "feedback", "接收到密文，已删除该条目"
@@ -509,8 +512,8 @@ class QueryCommand(UserCommandBase):
             database = self.bot.data_manager.get_data(DC_GROUPCONFIG,[meta.group_id,"query_database"],default_val="DND5E")
         else:
             port = PrivateMessagePort(meta.user_id)
-            # 默认查询DND5E数据库
-            database = "DND5E"
+            # 私聊使用默认查询数据库
+            database = self.bot.cfg_helper.get_config(CFG_QUERY_PRIVATE_DATABASE)[0]
         source_port = MessagePort(meta.group_id, meta.user_id)
         mode: Literal["query", "search", "select", "flip_page", "editing", "new", "feedback", "redirect"] = hint[0]
         arg_str: str = hint[1]
@@ -605,7 +608,7 @@ class QueryCommand(UserCommandBase):
                 index += 1
                 if index >= 8:
                     break
-            query_data: QueryData = QueryData(data)
+            query_data: QueryData = QueryData(data,database=database)
             query_data.data_extend()
             self.record_dict[source_port] = QueryRecord([query_data],database,get_current_date_raw(), 1)
             self.record_dict[source_port].mode = show_mode
@@ -1117,7 +1120,7 @@ class QueryCommand(UserCommandBase):
         #print(sql_condition)
         cursor = query_sqlcur.execute(sql_search_command_prefix + sql_condition + sql_command_suffix)
         for _data in cursor:
-            query_result.append(QueryData(_data))
+            query_result.append(QueryData(_data,database=database))
             result_length += 1
             if result_length > MAX_QUERY_ITEM_NUM:
                 raise QueryError("匹配条目过多，无法查询")
@@ -1146,7 +1149,7 @@ class QueryCommand(UserCommandBase):
                         sql_condition = self.generate_search_conditions(sql_condition_list)
                         cursor = query_sqlcur.execute(sql_search_command_prefix + sql_condition+ sql_command_suffix)
                         for _data in cursor:
-                            query_result.append(QueryData(_data,_redirect[0]))
+                            query_result.append(QueryData(_data,_redirect[0],database))
                             result_length += 1
                             if result_length > MAX_QUERY_ITEM_NUM:
                                 raise QueryError("匹配条目过多，无法查询")
