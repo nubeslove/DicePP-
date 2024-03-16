@@ -20,8 +20,8 @@ CHAT_FILE_PATH = "chat.xlsx"
 
 DEFAULT_ID = "Default"
 
-DEFAULT_CHAT_KEY = "^hi$"
-DEFAULT_CHAT_TEXT = ["Hello", "G'Day"]
+DEFAULT_CHAT_KEY = "^你好$"
+DEFAULT_CHAT_TEXT = ["你好啊", "你好呀"]
 DEFAULT_CHAT_COMMENT = "可以使用正则表达式匹配, 大小写不敏感; 后面接着想要的回复, 有多个回复则会随机选择一个"
 
 

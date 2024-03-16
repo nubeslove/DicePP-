@@ -10,7 +10,7 @@ from core.command import BotCommandBase, BotSendMsgCommand
 from core.communication import MessageMetaData, PrivateMessagePort, GroupMessagePort
 from core.config import DATA_PATH
 from module.common import DC_GROUPCONFIG
-from core.localization import LOC_FUNC_DISABLE
+from core.localization import LOC_PERMISSION_DENIED_NOTICE, LOC_FUNC_DISABLE
 
 LOC_MODE_SWITCH = "mode_switch"
 LOC_MODE_INVALID = "mode_invalid"
@@ -32,7 +32,8 @@ DEFAULT_TABLE = [
 ]
 
 @custom_user_command(readable_name="模式指令", priority=-2,
-                     flag=DPP_COMMAND_FLAG_MANAGE, group_only=True)
+                     flag=DPP_COMMAND_FLAG_MANAGE, group_only=True
+                     )
 class ModeCommand(UserCommandBase):
     """
     .mode 模式设置指令（批量群设置修改/模板调用指令）
@@ -110,7 +111,6 @@ class ModeCommand(UserCommandBase):
             hint = msg_str[5:].strip()
         else:
             should_proc = False
-        
         return should_proc, should_pass, hint
 
     def process_msg(self, msg_str: str, meta: MessageMetaData, hint: Any) -> List[BotCommandBase]:
@@ -120,6 +120,10 @@ class ModeCommand(UserCommandBase):
             assert (int(self.bot.cfg_helper.get_config(CFG_MODE_ENABLE)[0]) != 0)
         except AssertionError:
             feedback = self.bot.loc_helper.format_loc_text(LOC_FUNC_DISABLE, func=self.readable_name)
+            return [BotSendMsgCommand(self.bot.account, feedback, [port])]
+        # 判断权限
+        if meta.permission < 1: # 需要至少1级权限（群管理/骰管理）才能执行
+            feedback = self.bot.loc_helper.format_loc_text(LOC_PERMISSION_DENIED_NOTICE)
             return [BotSendMsgCommand(self.bot.account, feedback, [port])]
         # 解析语句
         arg_var = hint.strip().upper()

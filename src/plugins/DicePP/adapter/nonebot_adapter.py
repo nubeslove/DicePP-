@@ -77,10 +77,16 @@ class NoneBotClientProxy(ClientProxy):
                     for target in command.targets:
                         await self.bot.call_api("send_group_forward_msg", group_id=int(target.group_id), messages=command.msg_json_list)
                 except:
-                    await self.bot.send_group_msg(group_id=int(target.group_id), message="合并转发失败！")
-                    for target in command.targets:
-                        for msg in command.msg:
-                            await self.bot.send_group_msg(group_id=int(target.group_id), message=CQMessage(msg))
+                    if target.group_id:
+                        await self.bot.send_group_msg(group_id=int(target.group_id), message="合并转发失败！")
+                        for target in command.targets:
+                            for msg in command.msg:
+                                await self.bot.send_group_msg(group_id=int(target.group_id), message=CQMessage(msg))
+                    else:
+                        await self.bot.send_group_msg(user_id=int(target.used_id), message="合并转发失败！")
+                        for target in command.targets:
+                            for msg in command.msg:
+                                await self.bot.send_private_msg(user_id=int(target.user_id), message=CQMessage(msg))
             elif isinstance(command, BotSendFileCommand):
                 try:
                     for target in command.targets:

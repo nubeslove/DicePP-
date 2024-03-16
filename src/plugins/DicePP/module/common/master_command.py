@@ -24,8 +24,9 @@ class _(DataChunkBase):
     def __init__(self):
         super().__init__()
 
-@custom_user_command(readable_name="Master指令", priority=DPP_COMMAND_PRIORITY_MASTER,
-                     flag=DPP_COMMAND_FLAG_MANAGE)
+@custom_user_command(readable_name="Master指令", priority=DPP_COMMAND_PRIORITY_MASTER,flag=DPP_COMMAND_FLAG_MANAGE,
+                     permission_require=3 # 限定骰管理使用
+                     )
 class MasterCommand(UserCommandBase):
     """
     Master指令
@@ -34,23 +35,24 @@ class MasterCommand(UserCommandBase):
 
     def __init__(self, bot: Bot):
         super().__init__(bot)
-        bot.loc_helper.register_loc_text(LOC_REBOOT, "Reboot Complete", "重启完成")
+        bot.loc_helper.register_loc_text(LOC_REBOOT, "重启已完毕。", "重启完成")
         bot.loc_helper.register_loc_text(LOC_SEND_MASTER,
-                                         "Send message: {msg} to {id} (type:{type})",
+                                         "发送消息: {msg} 至 {id} (类型:{type})",
                                          "用.m send指令发送消息时给Master的回复")
-        bot.loc_helper.register_loc_text(LOC_SEND_TARGET, "From Master: {msg}", "用.m send指令发送消息时给目标的回复")
+        bot.loc_helper.register_loc_text(LOC_SEND_TARGET, "自Master: {msg}", "用.m send指令发送消息时给目标的回复")
 
     def can_process_msg(self, msg_str: str, meta: MessageMetaData) -> Tuple[bool, bool, Any]:
-        # 此处改为Master或Admin都可以使用.m指令——不然Admin不好用
-        master_list = self.bot.cfg_helper.get_config(CFG_MASTER)
-        admin_list = self.bot.cfg_helper.get_config(CFG_ADMIN)
         should_proc: bool = False
         should_pass: bool = False
-        if (meta.user_id not in master_list) and (meta.user_id not in admin_list):
-            return should_proc, should_pass, None
-
-        should_proc = msg_str.startswith(".m")
-        return should_proc, should_pass, msg_str[2:].strip()
+        
+        arg_str: str = ""
+        if msg_str.startswith(".m"):
+            should_proc = True
+            arg_str = msg_str[2:].strip()
+        elif msg_str.startswith(".master"):
+            should_proc = True
+            arg_str = msg_str[7:].strip()
+        return should_proc, should_pass, arg_str
 
     def process_msg(self, msg_str: str, meta: MessageMetaData, hint: Any) -> List[BotCommandBase]:
         port = GroupMessagePort(meta.group_id) if meta.group_id else PrivateMessagePort(meta.user_id)

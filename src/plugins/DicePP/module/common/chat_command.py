@@ -41,6 +41,7 @@ class ChatCommand(UserCommandBase):
         bot.cfg_helper.register_config(CFG_CHAT_INTER, "20", "自定义聊天触发间隔, 单位:秒")
         self.interval: int = -1
         self.interval_delta: datetime.timedelta = datetime.timedelta(seconds=20)
+        # 自定义对话的开关由groupconifg_command操控
 
     def can_process_msg(self, msg_str: str, meta: MessageMetaData) -> Tuple[bool, bool, Any]:
         should_proc: bool = False

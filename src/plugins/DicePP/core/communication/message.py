@@ -26,4 +26,5 @@ class MessageMetaData:
         self.nickname: str = sender.nickname
         self.group_id: str = group_id
         self.to_me: bool = to_me
+        self.permission: int = 0
 

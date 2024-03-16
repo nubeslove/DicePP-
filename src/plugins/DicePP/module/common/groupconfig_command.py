@@ -13,7 +13,9 @@ from core.config import CFG_MASTER, CFG_ADMIN
 
 LOC_GROUP_CONFIG_SET = "group_config_set"
 LOC_GROUP_CONFIG_GET = "group_config_get"
-LOC_GROUP_CONFIG_SHOW = "group_config_show"
+LOC_GROUP_DICE_SET = "group_dice_set"
+LOC_GROUP_CHAT_ON = "group_chat_on"
+LOC_GROUP_CHAT_OFF = "group_chat_off"
 
 DC_GROUPCONFIG = "group_config"
 
@@ -45,7 +47,9 @@ class _(DataChunkBase):
 
 
 @custom_user_command(readable_name="群配置指令", priority=-1,  # 要比掷骰命令前, 否则.c会覆盖.config
-                     flag=DPP_COMMAND_FLAG_MANAGE, group_only=True)
+                     flag=DPP_COMMAND_FLAG_MANAGE, group_only=True,
+                     permission_require=1 # 限定群管理/骰管理使用
+                     )
 class GroupconfigCommand(UserCommandBase):
     """
     .config 群配置指令
@@ -53,65 +57,90 @@ class GroupconfigCommand(UserCommandBase):
 
     def __init__(self, bot: Bot):
         super().__init__(bot)
-        bot.loc_helper.register_loc_text(LOC_GROUP_CONFIG_SET, "", "设置指令")
+        bot.loc_helper.register_loc_text(LOC_GROUP_CONFIG_SET, "已将本群 {var_name} 的值改为 {var}。", "群配置指令（需要骰管理），将一项群配置设定为特定值时的回复，var_name：变量名，var：具体值")
+        bot.loc_helper.register_loc_text(LOC_GROUP_CONFIG_GET, "本群 {var_name} 的值是 {var}。", "群配置指令，将一项群配置设定为特定值时的回复，var_name：变量名，var：具体值")
+        bot.loc_helper.register_loc_text(LOC_GROUP_DICE_SET, "本群的默认掷骰面数已改为{var}面。", "修改群内默认掷骰骰面的回复，var：具体骰面")
+        bot.loc_helper.register_loc_text(LOC_GROUP_CHAT_ON, "本群的自定义聊天功能已开启。", "开启聊天功能的回复")
+        bot.loc_helper.register_loc_text(LOC_GROUP_CHAT_OFF, "本群的自定义聊天功能已关闭。", "关闭聊天功能的回复")
 
     def can_process_msg(self, msg_str: str, meta: MessageMetaData) -> Tuple[bool, bool, Any]:
         should_proc: bool = True
         should_pass: bool = False
-        master_list = self.bot.cfg_helper.get_config(CFG_MASTER)
-        admin_list = self.bot.cfg_helper.get_config(CFG_ADMIN)
-        hint: str = ""
-        if not meta.group_id:
-            should_proc = False
-        elif msg_str.startswith(".设置"):
-            hint = meta.plain_msg[3:].strip()
-            if (meta.user_id not in master_list) and (meta.user_id not in admin_list):
-                return should_proc, should_pass, None
+        arg_str: str = ""
+        show_mode: str = ""
+        
+        if msg_str.startswith(".设置"):
+            arg_str = meta.plain_msg[3:].strip()
         elif msg_str.startswith(".config"):
-            hint = meta.plain_msg[7:].strip()
-            if (meta.user_id not in master_list) and (meta.user_id not in admin_list):
-                return should_proc, should_pass, None
-        elif msg_str.startswith(".模式"):
-            hint =  msg_str[3:].strip()
+            arg_str = meta.plain_msg[7:].strip()
+        elif msg_str.startswith(".聊天"):
+            arg_str =  "set chat " + msg_str[3:].strip()
+            show_mode = "chat"
         elif msg_str.startswith(".chat"):
-            hint =  "set chat " + msg_str[5:].strip()
-        elif msg_str.startswith(".dset"):
-            hint =  msg_str[5:].strip()
+            arg_str =  "set chat " + msg_str[5:].strip()
+            show_mode = "chat"
+        elif msg_str.startswith(".骰面"):
+            arg_str =  "set default_dice " + msg_str[3:].strip()
+            show_mode = "dice"
+        elif msg_str.startswith(".dice"):
+            arg_str =  "set default_dice " + msg_str[5:].strip()
+            show_mode = "dice"
         else:
             should_proc = False
+
+        hint = (arg_str, show_mode)
         return should_proc, should_pass, hint
 
     def process_msg(self, msg_str: str, meta: MessageMetaData, hint: Any) -> List[BotCommandBase]:
-        port = GroupMessagePort(meta.group_id) if meta.group_id else PrivateMessagePort(meta.user_id)
+        port = GroupMessagePort(meta.group_id)
         # 解析语句
-        arg_list = hint.split()
-        arg_num = len(arg_list)
-        feedback: str = "无效内容"
+        if hint[0] == "":
+            arg_list = []
+            arg_num = 0
+        else:
+            arg_list = [arg.split() for arg in hint[0].split(" ") if arg.split() != ""]
+            arg_num = len(arg_list)
+        feedback: str = ""
+        set_format: str = ""
 
         if arg_num == 0:
-            feedback = "无参数"
-        elif msg_str.startswith(".dset"):
-            try:
-                dice: int = int(arg_list[0])
-                self.set_group_config(meta.group_id,"default_dice",dice)
-                feedback = "已将本群默认骰设置为 " + str(dice) + " 面!"
-            except:
-                feedback = "无效数值"
+            feedback = self.get_help(".config",meta)
         elif arg_list[0] == "set":
-            if arg_num == 3:
-                if arg_list[2] in ["真","是","开","true","yes","on"]:
+            if arg_num == 3 and arg_list[1] in DEFAULT_GROUP_CONFIG.keys():
+                var_data = None
+                var_str = ""
+                var_type = type(DEFAULT_GROUP_CONFIG[arg_list[1]])
+                # 检测输入类型
+                if arg_list[2] in ["真","是","开","开启","true","yes","on"]:
                     self.set_group_config(meta.group_id,arg_list[1],True)
-                elif arg_list[2] in ["假","否","关","false","no","off"]:
+                    var_str = "True"
+                elif arg_list[2] in ["假","否","关","关闭","false","no","off"]:
                     self.set_group_config(meta.group_id,arg_list[1],False)
+                    var_str = "False"
                 elif arg_list[2].isdigit():
                     self.set_group_config(meta.group_id,arg_list[1],int(arg_list[2]))
+                    var_str = arg_list[2]
                 else:
                     self.set_group_config(meta.group_id,arg_list[1],arg_list[2])
-                feedback = "已将群配置 "+ arg_list[1] + " 设置为 " + arg_list[2]
+                    var_str = arg_list[2]
+                # 检测输入类型是否合规
+                if not isinstance(arg_list[1],var_type):
+                    feedback = "违规的数据类型。"
+                else:
+                    # 修改设置
+                    self.set_group_config(meta.group_id,arg_list[1],True)
+                    # 特定简写指令的回复会使用到loc文本，不然默认使用此处的
+                    #if show_mode == "chat"
+                    #elif show_mode == "dice"
+                    #feedback = "已将本群默认骰设置为 {var} 面!"
+                    self.bot.loc_helper.format_loc_text(LOC_FUNC_DISABLE, func=self.readable_name)
+                    feedback = "已将群配置 "+ arg_list[1] + " 的值改为 " + arg_list[2] + "。"
+            else:
+                feedback = "参数错误"
         elif arg_list[0] == "get":
             if arg_num == 2:
                 feedback = str(self.get_group_config(meta.group_id,arg_list[1]))
-                feedback = "群配置 "+ arg_list[1] + " 的值为 " + feedback
+                feedback = "群配置 "+ arg_list[1] + " 的值为 " + feedback + "。"
         elif arg_list[0] == "show":
             config_dict = self.bot.data_manager.get_data(DC_GROUPCONFIG, [meta.group_id],default_val="")
             feedback = "当前已配置的群配置: "
@@ -125,7 +154,7 @@ class GroupconfigCommand(UserCommandBase):
             self.clear_group_config(meta.group_id)
             feedback = "群配置已清空"
         else:
-            feedback = "未知指令"
+            feedback = "未知指令。"
             
 
         return [BotSendMsgCommand(self.bot.account, feedback, [port])]
@@ -149,8 +178,8 @@ class GroupconfigCommand(UserCommandBase):
 
 
     def get_help(self, keyword: str, meta: MessageMetaData) -> str:
-        if keyword == "config" or keyword == "mode":  # help后的接着的内容
-            feedback: str = ".config set [设置名] [参数值1]" \
+        if keyword == "config":  # help后的接着的内容
+            feedback: str = ".config set [设置名] [参数值]" \
                             "设置群配置" \
                             ".config get [设置名]" \
                             "获取群当前设置，与介绍和格式" \
@@ -162,6 +191,16 @@ class GroupconfigCommand(UserCommandBase):
                             "显示当前群已设置的全部设置名" \
                             ".config list" \
                             "显示全部可用设置"
+            return feedback
+        elif keyword == "dice":  # help后的接着的内容
+            feedback: str = ".dice [骰面]" \
+                            "设置群内默认投掷的骰子面数"
+            return feedback
+        elif keyword == "chat":  # help后的接着的内容
+            feedback: str = ".chat on" \
+                            "开启群内骰娘个性化对话功能（默认开启）" \
+                            ".chat off" \
+                            "关闭群内骰娘个性化对话功能"
             return feedback
         return ""
 

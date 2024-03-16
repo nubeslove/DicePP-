@@ -44,7 +44,9 @@ CFG_QUERY_DATA_PATH = "query_data_path"
 @custom_user_command(readable_name="私设指令",
                      priority=2,
                      group_only=True,
-                     flag=DPP_COMMAND_FLAG_QUERY)
+                     flag=DPP_COMMAND_FLAG_QUERY,
+                     permission_require=1 # 限定群管理/骰管理使用
+                     )
 class HomebrewCommand(UserCommandBase):
     """
     私设资料库的指令, 以.私设或.hb开头

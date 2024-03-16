@@ -363,7 +363,6 @@ class QueryCommand(UserCommandBase):
         mode: Optional[Literal["query", "search", "select", "flip_page", "editing", "new", "feedback", "redirect"]] = None
         arg_str: str = ""
         show_mode: int = 0
-        admin: bool = (meta.user_id in self.bot.cfg_helper.get_config(CFG_MASTER)) or (meta.user_id in self.bot.cfg_helper.get_config(CFG_ADMIN))
 
         # 响应交互查询指令
         port = MessagePort(meta.group_id, meta.user_id)
@@ -439,7 +438,7 @@ class QueryCommand(UserCommandBase):
             if not should_proc and msg_str.startswith(f".{key}"):
                 should_proc, mode, arg_str = True, "database", msg_str[1 + len(key):].strip()
         
-        if admin:
+        if meta.permission >= 3:# 需要3级权限（群管理/骰主）才能编辑资料库
             if mode == "redirect":
                 if arg_str.startswith("删除"):
                     arg_str = arg_str[2:].strip()

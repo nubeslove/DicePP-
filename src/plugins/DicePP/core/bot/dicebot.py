@@ -7,10 +7,10 @@ from random import choice
 
 from utils.logger import dice_log, get_exception_info
 from utils.time import str_to_datetime, get_current_date_str, get_current_date_raw, int_to_datetime
-from core.localization import LocalizationManager, LOC_GROUP_ONLY_NOTICE, LOC_FRIEND_ADD_NOTICE, LOC_GROUP_EXPIRE_WARNING
+from core.localization import LocalizationManager, LOC_GROUP_ONLY_NOTICE, LOC_PERMISSION_DENIED_NOTICE, LOC_FRIEND_ADD_NOTICE, LOC_GROUP_EXPIRE_WARNING
 from core.config import ConfigManager, CFG_COMMAND_SPLIT, CFG_MASTER, CFG_FRIEND_TOKEN, CFG_GROUP_INVITE
 from core.config import CFG_DATA_EXPIRE, CFG_USER_EXPIRE_DAY, CFG_GROUP_EXPIRE_DAY, CFG_GROUP_EXPIRE_WARNING,\
-    CFG_WHITE_LIST_GROUP, CFG_WHITE_LIST_USER, preprocess_white_list
+    CFG_WHITE_LIST_GROUP, CFG_WHITE_LIST_USER, CFG_ADMIN, CFG_MASTER, preprocess_white_list
 from core.config import BOT_DATA_PATH, CONFIG_PATH
 from core.communication import MessageMetaData, MessagePort, PrivateMessagePort, GroupMessagePort, preprocess_msg
 from core.communication import RequestData, FriendRequestData, JoinGroupRequestData, InviteGroupRequestData
@@ -299,20 +299,17 @@ class Bot:
                 feedback = f"{feedback_prefix}\n{feedback}"
                 dice_log(feedback)
                 # 给上次reboot的Admin或Master汇报
-                # 别汇报了
-                """
                 from module.common.master_command import DC_CTRL
                 rebooter = self.data_manager.get_data(DC_CTRL, ["rebooter"], "")
                 if rebooter != "":
                     self.data_manager.set_data(DC_CTRL, ["rebooter"], "")
                     command = BotSendMsgCommand(self.account, feedback, [PrivateMessagePort(rebooter)])
                     await self.proxy.process_bot_command(command)
-                # 给所有Master汇报
+                # 如果不存在reboot者，则给所有Master汇报
                 else :
                     for master in self.cfg_helper.get_config(CFG_MASTER):
                         command = BotSendMsgCommand(self.account, feedback, [PrivateMessagePort(master)])
                         await self.proxy.process_bot_command(command)
-                """
             else:
                 dice_log(init_info)
 
@@ -330,9 +327,23 @@ class Bot:
         # 统计信息
         meta_stat: MetaStatInfo = self.data_manager.get_data(DC_META, [DCK_META_STAT], default_gen=MetaStatInfo, get_ref=True)
         user_stat: UserStatInfo = self.data_manager.get_data(DC_USER_DATA, [meta.user_id, DCK_USER_STAT], default_gen=UserStatInfo, get_ref=True)
+        # 修改meta的permission参数
+        # 4:骰主 3:骰管理 2:群主 1:群管理 0:普通人 -1:黑名单
+        if meta.user_id in self.cfg_helper.get_config(CFG_MASTER):
+            meta.permission = 4
+        elif meta.user_id in self.cfg_helper.get_config(CFG_ADMIN):
+            meta.permission = 3
+        else:
+            if meta.sender.role is not None:
+                if meta.sender.role == "owner": # 群主 权限2
+                    meta.permission = 2
+                elif meta.sender.role == "admin": # 群管理 权限1
+                    meta.permission = 1
+                else: #elif meta.sender.role == "member": # 群员，或普通人
+                    meta.permission = 0
+        # 群内资料同步
         if meta.group_id:
-            group_stat: GroupStatInfo = self.data_manager.get_data(DC_GROUP_DATA, [meta.group_id, DCK_GROUP_STAT],
-                                                                   default_gen=GroupStatInfo, get_ref=True)
+            group_stat: GroupStatInfo = self.data_manager.get_data(DC_GROUP_DATA, [meta.group_id, DCK_GROUP_STAT], default_gen=GroupStatInfo, get_ref=True)
         else:
             group_stat = GroupStatInfo()
         # 统计收到的消息数量
@@ -380,13 +391,18 @@ class Bot:
                     should_proc, should_pass, hint = False, False, None
                     info = f"{msg_list}中的{msg_cur}" if is_multi_command else msg
                     group_info = f"群:{meta.group_id}" if meta.group_id else "私聊"
-                    bot_commands += self.handle_exception(f"来源:{info}\n用户:{meta.user_id} {group_info} CODE100")
+                    bot_commands += self.handle_exception(f"来源:{info}\n用户:{meta.user_id} {group_info}出错位置:{command.readable_name}\n错误代码：CODE100")
                 if not should_proc:
                     continue
                 # 在非群聊中企图执行群聊指令, 回复一条提示
                 if command.group_only and not meta.group_id:
                     feedback = self.loc_helper.format_loc_text(LOC_GROUP_ONLY_NOTICE)
                     bot_commands += [BotSendMsgCommand(self.account, feedback, [PrivateMessagePort(meta.user_id)])]
+                    break
+                # 无权限者/权限不足者企图使用一条需要权限的指令, 回复一条提示
+                if meta.permission < command.permission_require:
+                    feedback = self.loc_helper.format_loc_text(LOC_PERMISSION_DENIED_NOTICE)
+                    bot_commands += [BotSendMsgCommand(self.account, feedback, [GroupMessagePort(meta.group_id) if meta.group_id else PrivateMessagePort(meta.user_id)])]
                     break
                 # 执行指令
                 res_commands = []
