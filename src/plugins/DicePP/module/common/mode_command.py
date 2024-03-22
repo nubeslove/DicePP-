@@ -84,7 +84,7 @@ class ModeCommand(UserCommandBase):
             ws.append(DEFAULT_FIELD)
             for row in DEFAULT_TABLE:
                 ws.append(row)
-                self.mode_dict[str(row[0].value)] = [str(cell.value) for cell in row[1:]]
+                self.mode_dict[row[0]] = [cell for cell in row[1:]]
             edited = True
             init_info.append("已创建模式文件。")
         if edited:
