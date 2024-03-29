@@ -11,16 +11,15 @@ LOC_JSON_INVITE_UNABLE = "json_invite_unable"
 
 @custom_user_command(readable_name="新功能测试指令",
                      priority=0,
-                     flag=DPP_COMMAND_FLAG_FUN,
-                     permission_require=4)
+                     flag=DPP_COMMAND_FLAG_FUN)
 class NewTestCommand(UserCommandBase):
     def __init__(self, bot: Bot):
         super().__init__(bot)
         bot.loc_helper.register_loc_text(LOC_JSON_INVITE_UNABLE, "暂时不支持邀请链接邀请加群，请考虑让其他人（比如群管理）直接邀请加群。具体信息可以去群861919492询问。", "私聊使用JSON格式邀请链接导致骰娘无法处理时返回的文本")
 
     def can_process_msg(self, msg_str: str, meta: MessageMetaData) -> Tuple[bool, bool, Any]:
-        key: str = "test"
         '''
+        key: str = "test"
         if msg_str.startswith("."+key):
             return True, False, msg_str[len(key)+1:].strip()
         '''
