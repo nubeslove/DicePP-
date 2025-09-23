@@ -9,7 +9,7 @@ import nonebot
 from nonebot import on_message, on_notice, on_request
 from nonebot.rule import Rule
 from nonebot.adapters.onebot.v11.event import MessageEvent, PrivateMessageEvent, GroupMessageEvent
-from nonebot.adapters.onebot.v11.event import NoticeEvent, GroupIncreaseNoticeEvent, FriendAddNoticeEvent
+from nonebot.adapters.onebot.v11.event import NoticeEvent, GroupIncreaseNoticeEvent, FriendAddNoticeEvent, GroupRecallNoticeEvent
 from nonebot.adapters.onebot.v11.event import RequestEvent, FriendRequestEvent, GroupRequestEvent
 from nonebot.adapters.onebot.v11.bot import Bot as NoneBot
 from nonebot.adapters.onebot.v11 import Message as CQMessage
@@ -21,8 +21,9 @@ from core.communication import NoticeData, FriendAddNoticeData, GroupIncreaseNot
 from core.communication import RequestData, FriendRequestData, JoinGroupRequestData, InviteGroupRequestData
 from core.command import BotCommandBase, BotSendMsgCommand, BotDelayCommand, BotLeaveGroupCommand, BotSendForwardMsgCommand, BotSendFileCommand
 from utils.logger import dice_log
+from utils.time import get_current_date_str
 
-from module.common.log_command import append_log_record, LOC_LOG_FOLDER_FAIL
+from module.common.log_command import append_log_record, LOC_LOG_FOLDER_FAIL, should_filter_record, DC_LOG_SESSION, DCK_ACTIVE, DCK_RECORDS, DCK_COLOR_MAP, _pick_color  # type: ignore
 
 from adapter.client_proxy import ClientProxy
 
@@ -214,7 +215,11 @@ class NoneBotClientProxy(ClientProxy):
 async def handle_command(bot: NoneBot, event: MessageEvent):
     cq_message = event.get_message()
     plain_msg = cq_message.extract_plain_text()
-    raw_msg = str(cq_message)
+    # 优先使用 OneBot 事件提供的 raw_message（包含 CQ 码），以便日志里还原 @ / reply / image 等
+    try:
+        raw_msg = getattr(event, 'raw_message', '') or str(cq_message)
+    except Exception:
+        raw_msg = str(cq_message)
 
     # 构建Meta信息
     group_id: str = ""
@@ -237,6 +242,65 @@ async def handle_command(bot: NoneBot, event: MessageEvent):
     to_me = event.to_me
 
     meta = MessageMetaData(plain_msg, raw_msg, sender, group_id, to_me)
+    # 写入 message_id 供撤回同步删除日志使用
+    try:
+        meta.message_id = str(event.message_id)
+    except Exception:
+        meta.message_id = None
+
+    # 若是群内“指令”（以 . 或 。 开头）先行记录，避免被其他指令吞掉导致日志缺失
+    if group_id and (raw_msg.startswith('.') or raw_msg.startswith('。')):
+        try:
+            # 检查是否激活
+            is_active = all_bots[bot.self_id].data_manager.get_data(DC_LOG_SESSION, [group_id, DCK_ACTIVE], False)
+            if is_active and not should_filter_record(all_bots[bot.self_id], group_id, user_id, raw_msg, is_bot=False):
+                # 准备 records / color_map
+                try:
+                    records = all_bots[bot.self_id].data_manager.get_data(DC_LOG_SESSION, [group_id, DCK_RECORDS])
+                except Exception:
+                    records = []
+                    all_bots[bot.self_id].data_manager.set_data(DC_LOG_SESSION, [group_id, DCK_RECORDS], records)
+                color_map = all_bots[bot.self_id].data_manager.get_data(DC_LOG_SESSION, [group_id, DCK_COLOR_MAP], {})
+                _pick_color(color_map, user_id)
+                all_bots[bot.self_id].data_manager.set_data(DC_LOG_SESSION, [group_id, DCK_COLOR_MAP], color_map)
+                mid = str(getattr(event, 'message_id', ''))
+                if not any(r.get('message_id') == mid for r in records):
+                    records.append({
+                        'time': get_current_date_str(),
+                        'user_id': user_id,
+                        'nickname': event.sender.nickname or user_id,
+                        'content': raw_msg,
+                        'message_id': mid
+                    })
+                    all_bots[bot.self_id].data_manager.set_data(DC_LOG_SESSION, [group_id, DCK_RECORDS], records)
+        except Exception:
+            pass
+
+    # 仅含 @ 且纯 CQ（plain 文本部分可能为空或全是空白）消息的预记录，避免后续层忽略
+    if group_id and ('[CQ:at,' in raw_msg) and plain_msg.strip() == '':
+        try:
+            is_active = all_bots[bot.self_id].data_manager.get_data(DC_LOG_SESSION, [group_id, DCK_ACTIVE], False)
+            if is_active and not should_filter_record(all_bots[bot.self_id], group_id, user_id, raw_msg, is_bot=False):
+                try:
+                    records = all_bots[bot.self_id].data_manager.get_data(DC_LOG_SESSION, [group_id, DCK_RECORDS])
+                except Exception:
+                    records = []
+                    all_bots[bot.self_id].data_manager.set_data(DC_LOG_SESSION, [group_id, DCK_RECORDS], records)
+                color_map = all_bots[bot.self_id].data_manager.get_data(DC_LOG_SESSION, [group_id, DCK_COLOR_MAP], {})
+                _pick_color(color_map, user_id)
+                all_bots[bot.self_id].data_manager.set_data(DC_LOG_SESSION, [group_id, DCK_COLOR_MAP], color_map)
+                mid = str(getattr(event, 'message_id', ''))
+                if not any(r.get('message_id') == mid for r in records):
+                    records.append({
+                        'time': get_current_date_str(),
+                        'user_id': user_id,
+                        'nickname': event.sender.nickname or user_id,
+                        'content': raw_msg,
+                        'message_id': mid
+                    })
+                    all_bots[bot.self_id].data_manager.set_data(DC_LOG_SESSION, [group_id, DCK_RECORDS], records)
+        except Exception:
+            pass
 
     # 让机器人处理信息
     await all_bots[bot.self_id].process_message(plain_msg, meta)
@@ -252,6 +316,13 @@ async def handle_notice(bot: NoneBot, event: NoticeEvent):
         data = GroupIncreaseNoticeData(str(event.user_id), str(event.group_id), str(event.operator_id))
     elif event.notice_type == "friend_add":
         data = FriendAddNoticeData(str(event.user_id))
+    elif event.notice_type == "group_recall":
+        # OneBot v11 撤回事件: GroupRecallNoticeEvent
+        try:
+            if isinstance(event, GroupRecallNoticeEvent):
+                await _handle_group_recall(event, bot)
+        except Exception as e:
+            dice_log(f"[Recall] handle error {e}")
 
     # 处理消息提示
     if data:
@@ -303,13 +374,14 @@ async def handle_request(bot: NoneBot, event: RequestEvent):
         '''
 
 
-# 全局Driver
+ # 全局Driver
 try:
     driver = nonebot.get_driver()
-
-
+except ValueError:
+    driver = None  # type: ignore
+    dice_log("[NB Adapter] NoneBot has not been initialized (driver unavailable)")
+else:
     # 在Bot连接时调用
-
     @driver.on_bot_connect
     async def connect(bot: NoneBot) -> None:
         proxy = NoneBotClientProxy(bot)
@@ -324,11 +396,47 @@ try:
             pass
         dice_log(f"[NB Adapter] Bot {bot.self_id} Connected!")
 
-
     @driver.on_bot_disconnect
     async def disconnect(bot: NoneBot) -> None:
         await all_bots[bot.self_id].shutdown_async()
-        del all_bots[bot.self_id]
-        dice_log(f"[NB Adapter] Bot {bot.self_id} Disconnected!")
-except ValueError:
-    dice_log("[NB Adapter] NoneBot has not been initialized")
+
+# ================= Recall Sync Support ==================
+def _remove_log_record(bot_obj, group_id: str, message_id: str):
+    """在日志记录中根据 message_id 移除对应项。
+    仅处理当前 active 的记录，不主动开启。若 message_id 不存在则忽略。
+    结构兼容性：旧记录没有 message_id 字段，不做处理。
+    """
+    try:
+        is_active = bot_obj.data_manager.get_data('log_session', [group_id, 'active'], False)
+        if not is_active:
+            return
+        records = bot_obj.data_manager.get_data('log_session', [group_id, 'records'], [])
+        new_records = []
+        removed = 0
+        for rec in records:
+            if rec.get('message_id') == message_id:
+                removed += 1
+                continue
+            new_records.append(rec)
+        if removed:
+            bot_obj.data_manager.set_data('log_session', [group_id, 'records'], new_records)
+    except Exception as e:
+        try:
+            dice_log(f"[Recall] remove fail: {e}")
+        except Exception:
+            pass
+
+
+async def _handle_group_recall(event: GroupRecallNoticeEvent, nb_bot: NoneBot):
+    """处理群消息撤回事件，移除对应日志记录。
+    OneBot v11 字段: group_id, user_id(操作者?), operator_id, message_id, time
+    """
+    dice_log(f"[Recall] group {event.group_id} message {getattr(event,'message_id',None)}")
+    message_id = str(getattr(event, 'message_id', '')) if getattr(event, 'message_id', None) is not None else ''
+    if not message_id:
+        return
+    bot_obj = all_bots.get(nb_bot.self_id)
+    if not bot_obj:
+        return
+    _remove_log_record(bot_obj, str(event.group_id), message_id)
+
