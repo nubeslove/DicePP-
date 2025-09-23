@@ -29,3 +29,7 @@ build-backend = "poetry.masonry.api"
 name = "tsinghua"
 default = true
 url = "https://pypi.tuna.tsinghua.edu.cn/simple"
+
+[tool.nonebot]
+plugins = []
+plugin_dirs = ["src/plugins"]
