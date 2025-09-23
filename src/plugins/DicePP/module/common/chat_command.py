@@ -55,7 +55,27 @@ class ChatCommand(UserCommandBase):
             default_time = get_default_chat_time(self.get_interval())
             time_str = self.bot.data_manager.get_data(DC_CHAT_RECORD, [target, DCK_CHAT_TIME], default_val=default_time)
         feedback = ""
-        if get_current_date_raw() >= str_to_datetime(time_str) + self.get_interval_delta():
+        # 兼容旧格式：可能存成 YYYY_MM_DD_HH_MM_SS（下划线）
+        parse_ok = False
+        dt_base = None
+        try:
+            dt_base = str_to_datetime(time_str)
+            parse_ok = True
+        except Exception:
+            # 尝试自动修补：将下划线替换为 / 和 :
+            if '_' in time_str and time_str.count('_') >= 5:
+                parts = time_str.split('_')
+                if len(parts) >= 6:
+                    # YYYY_MM_DD_HH_MM_SS -> YYYY/MM/DD HH:MM:SS
+                    repaired = f"{parts[0]}/{parts[1]}/{parts[2]} {parts[3]}:{parts[4]}:{parts[5]}"
+                    try:
+                        dt_base = str_to_datetime(repaired)
+                        # 写回修复后的标准格式，防止下次再解析失败
+                        self.bot.data_manager.set_data(DC_CHAT_RECORD, [target, DCK_CHAT_TIME], repaired)
+                        parse_ok = True
+                    except Exception:
+                        pass
+        if parse_ok and get_current_date_raw() >= dt_base + self.get_interval_delta():
             feedback = self.bot.loc_helper.process_chat(msg_str)
         if feedback:
             should_proc = True
