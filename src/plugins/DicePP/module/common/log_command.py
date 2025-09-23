@@ -17,6 +17,8 @@ DCK_ACTIVE = "active"          # 是否正在记录
 DCK_START_TIME = "start_time"  # 记录开始时间 (str)
 DCK_RECORDS = "records"        # 记录的消息列表 List[Dict]
 DCK_COLOR_MAP = "color_map"    # 用户ID -> 颜色 hex
+DCK_MSG_COUNT = "msg_count"    # 累计消息数
+DCK_LAST_HOUR_WARN = "last_hour_warn"  # 上次小时警告时间 (str)
 DCK_FILTER_OUTSIDE = "filter_outside"  # 括号场外过滤
 DCK_FILTER_COMMAND = "filter_command"  # 指令过滤
 DCK_FILTER_BOT = "filter_bot"          # 骰娘自身过滤
@@ -218,6 +220,8 @@ class LogCommand(UserCommandBase):
                 self.bot.data_manager.set_data(DC_LOG_SESSION, [group_id, DCK_START_TIME], start_time)
                 self.bot.data_manager.set_data(DC_LOG_SESSION, [group_id, DCK_RECORDS], [])
                 self.bot.data_manager.set_data(DC_LOG_SESSION, [group_id, DCK_COLOR_MAP], {})
+                self.bot.data_manager.set_data(DC_LOG_SESSION, [group_id, DCK_MSG_COUNT], 0)
+                self.bot.data_manager.set_data(DC_LOG_SESSION, [group_id, DCK_LAST_HOUR_WARN], start_time)
                 # 只在缺失时初始化过滤配置，避免覆盖用户此前通过 .log set 设定的开关
                 for flag in (DCK_FILTER_OUTSIDE, DCK_FILTER_COMMAND, DCK_FILTER_BOT, DCK_FILTER_MEDIA, DCK_FILTER_FORUM_CODE):
                     try:
@@ -474,6 +478,7 @@ class LogRecorderCommand(UserCommandBase):
 
     def process_msg(self, msg_str: str, meta: MessageMetaData, hint: Any) -> List[BotCommandBase]:
         group_id = meta.group_id
+        cmds: List[BotCommandBase] = []
         # 读取当前数据
         try:
             records: List[Dict] = self.bot.data_manager.get_data(DC_LOG_SESSION, [group_id, DCK_RECORDS])
@@ -494,6 +499,40 @@ class LogRecorderCommand(UserCommandBase):
         # 过滤逻辑
         if should_filter_record(self.bot, group_id, meta.user_id, content):
             return []
+
+        # 计数器与时间提醒逻辑
+        try:
+            msg_count = self.bot.data_manager.get_data(DC_LOG_SESSION, [group_id, DCK_MSG_COUNT], 0)
+        except Exception:
+            msg_count = 0
+        msg_count += 1
+        self.bot.data_manager.set_data(DC_LOG_SESSION, [group_id, DCK_MSG_COUNT], msg_count)
+
+        # 每100条提醒
+        if msg_count % 100 == 0:
+            cmds.append(BotSendMsgCommand(self.bot.account, f"当前log消息已有{msg_count}条。", [GroupMessagePort(group_id)]))
+
+        # 每小时提醒
+        import datetime
+        try:
+            start_time_str = self.bot.data_manager.get_data(DC_LOG_SESSION, [group_id, DCK_START_TIME], get_current_date_str())
+            last_warn_str = self.bot.data_manager.get_data(DC_LOG_SESSION, [group_id, DCK_LAST_HOUR_WARN], start_time_str)
+        except Exception:
+            start_time_str = get_current_date_str()
+            last_warn_str = start_time_str
+        try:
+            start_dt = datetime.datetime.strptime(start_time_str, "%Y/%m/%d %H:%M:%S")
+            last_warn_dt = datetime.datetime.strptime(last_warn_str, "%Y/%m/%d %H:%M:%S")
+            now_dt = datetime.datetime.now()
+            hours_enabled = int((now_dt - start_dt).total_seconds() // 3600)
+            hours_last_warn = int((last_warn_dt - start_dt).total_seconds() // 3600)
+            if hours_enabled > hours_last_warn:
+                cmds.append(BotSendMsgCommand(self.bot.account, f"当前log已启用{hours_enabled}小时，如果已经save请注意关闭log。", [GroupMessagePort(group_id)]))
+                self.bot.data_manager.set_data(DC_LOG_SESSION, [group_id, DCK_LAST_HOUR_WARN], now_dt.strftime("%Y/%m/%d %H:%M:%S"))
+        except Exception:
+            pass
+
+        # 真正写入log
         records.append({
             "time": get_current_date_str(),
             "user_id": meta.user_id,
@@ -501,7 +540,7 @@ class LogRecorderCommand(UserCommandBase):
             "content": content,
         })
         self.bot.data_manager.set_data(DC_LOG_SESSION, [group_id, DCK_RECORDS], records)
-        return []  # 不产生机器人操作
+        return cmds
 
     def get_help(self, keyword: str, meta: MessageMetaData) -> str:
         return ""
