@@ -9,3 +9,4 @@ from .welcome_command import WelcomeCommand, DC_WELCOME, LOC_WELCOME_DEFAULT
 from .master_command import MasterCommand, DC_CTRL
 from .macro_command import MacroCommand
 from .variable_command import VariableCommand
+from .log_command import LogCommand, LogRecorderCommand, DC_LOG_SESSION

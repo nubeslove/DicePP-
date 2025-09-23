@@ -22,6 +22,8 @@ from core.communication import RequestData, FriendRequestData, JoinGroupRequestD
 from core.command import BotCommandBase, BotSendMsgCommand, BotDelayCommand, BotLeaveGroupCommand, BotSendForwardMsgCommand, BotSendFileCommand
 from utils.logger import dice_log
 
+from module.common.log_command import append_log_record, LOC_LOG_FOLDER_FAIL
+
 from adapter.client_proxy import ClientProxy
 
 from module.fastapi import dpp_api
@@ -37,6 +39,7 @@ notice_matcher = on_notice()
 request_matcher = on_request()
 
 all_bots: Dict[str, DicePPBot] = {}
+_group_folder_cache: Dict[str, Dict[str, Optional[str]]] = {}
 
 
 def convert_group_info(nb_group_info: Dict) -> GroupInfo:
@@ -68,6 +71,11 @@ class NoneBotClientProxy(ClientProxy):
                 for target in command.targets:
                     if target.group_id:
                         await self.bot.send_group_msg(group_id=int(target.group_id), message=CQMessage(command.msg))
+                        # 记录到群日志
+                        try:
+                            append_log_record(all_bots[self.bot.self_id], target.group_id, str(self.bot.self_id), all_bots[self.bot.self_id].get_nickname(self.bot.self_id, target.group_id) or "Bot", command.msg)
+                        except Exception:
+                            pass
                     else:
                         await self.bot.send_private_msg(user_id=int(target.user_id), message=CQMessage(command.msg))
             elif isinstance(command, BotLeaveGroupCommand):
@@ -76,23 +84,83 @@ class NoneBotClientProxy(ClientProxy):
                 try:
                     for target in command.targets:
                         await self.bot.call_api("send_group_forward_msg", group_id=int(target.group_id), messages=command.msg_json_list)
+                        # 合并转发中的每条子消息分别记录（保持原顺序）
+                        try:
+                            for sub_msg in command.msg:
+                                append_log_record(all_bots[self.bot.self_id], target.group_id, str(self.bot.self_id), all_bots[self.bot.self_id].get_nickname(self.bot.self_id, target.group_id) or "Bot", sub_msg)
+                        except Exception:
+                            pass
                 except:
                     if target.group_id:
                         await self.bot.send_group_msg(group_id=int(target.group_id), message="合并转发失败！")
                         for target in command.targets:
                             for msg in command.msg:
                                 await self.bot.send_group_msg(group_id=int(target.group_id), message=CQMessage(msg))
+                                try:
+                                    append_log_record(all_bots[self.bot.self_id], target.group_id, str(self.bot.self_id), all_bots[self.bot.self_id].get_nickname(self.bot.self_id, target.group_id) or "Bot", msg)
+                                except Exception:
+                                    pass
                     else:
                         await self.bot.send_group_msg(user_id=int(target.used_id), message="合并转发失败！")
                         for target in command.targets:
                             for msg in command.msg:
                                 await self.bot.send_private_msg(user_id=int(target.user_id), message=CQMessage(msg))
             elif isinstance(command, BotSendFileCommand):
-                try:
-                    for target in command.targets:
-                        await self.bot.call_api("upload_group_file", group_id=int(target.group_id), file=command.file, name=command.display_name)
-                except:
-                    await self.bot.send_group_msg(group_id=int(target.group_id), message="文件发送失败！")
+                for target in command.targets:
+                    display_name = command.display_name
+                    folder_name = None
+                    real_name = display_name
+                    if '/' in display_name:
+                        folder_name, real_name = display_name.split('/', 1)
+                        folder_name = folder_name.strip() or None
+                        real_name = real_name.strip() or display_name.split('/', 1)[1]
+                    folder_id = None
+                    if folder_name:
+                        # 仅检查是否已存在该文件夹，不尝试创建；未找到时不写入None，便于下次再次尝试
+                        cache = _group_folder_cache.setdefault(target.group_id, {})
+                        if folder_name in cache and cache[folder_name]:
+                            folder_id = cache[folder_name]
+                        else:
+                            try:
+                                root_files = await self.bot.call_api("get_group_root_files", group_id=int(target.group_id))
+                                folders_list = root_files.get('folders') or []
+                                for fd in folders_list:
+                                    # 兼容不同实现的键名
+                                    name_candidate = fd.get('folder_name') or fd.get('name') or fd.get('file_name')
+                                    if name_candidate == folder_name:
+                                        folder_id = fd.get('folder_id') or fd.get('id')
+                                        break
+                                if folder_id:
+                                    cache[folder_name] = folder_id  # 仅缓存成功找到的
+                            except Exception:
+                                pass
+                    try:
+                        primary_done = False
+                        try:
+                            if folder_id:
+                                await self.bot.call_api("upload_group_file", group_id=int(target.group_id), file=command.file, name=real_name, folder=folder_id)
+                            else:
+                                await self.bot.call_api("upload_group_file", group_id=int(target.group_id), file=command.file, name=real_name)
+                            primary_done = True
+                        except Exception as e1:
+                            # 记录日志并尝试一次根目录回退
+                            dice_log(f"[OneBot][Upload][PrimaryFail] group={target.group_id} file={real_name} err={e1}")
+                            if folder_id:  # 若是因文件夹失败，再尝试根目录
+                                try:
+                                    await self.bot.call_api("upload_group_file", group_id=int(target.group_id), file=command.file, name=real_name)
+                                    primary_done = True
+                                except Exception as e2:
+                                    dice_log(f"[OneBot][Upload][FallbackFail] group={target.group_id} file={real_name} err={e2}")
+                        if primary_done:
+                            try:
+                                append_log_record(all_bots[self.bot.self_id], target.group_id, str(self.bot.self_id), all_bots[self.bot.self_id].get_nickname(self.bot.self_id, target.group_id) or "Bot", f"[文件]{real_name}")
+                            except Exception:
+                                pass
+                        else:
+                            await self.bot.send_group_msg(group_id=int(target.group_id), message="文件发送失败！")
+                    except Exception as ex_outer:
+                        dice_log(f"[OneBot][Upload][Unexpected] group={target.group_id} file={real_name} err={ex_outer}")
+                        await self.bot.send_group_msg(group_id=int(target.group_id), message="文件发送失败！")
             elif isinstance(command, BotDelayCommand):
                 await asyncio.sleep(command.seconds)
             else:
@@ -126,19 +194,19 @@ class NoneBotClientProxy(ClientProxy):
         return convert_group_member_info(group_member_info)
 
     async def get_group_file_system_info(self, group_id: str) -> Any:
-        data = await bot.call_api("get_group_file_system_info", group_id=int(group_id))
+        data = await self.bot.call_api("get_group_file_system_info", group_id=int(group_id))
         return data
 
     async def get_group_root_files(self, group_id: str) -> Any:
-        data = await bot.call_api("get_group_root_files", group_id=int(group_id))
+        data = await self.bot.call_api("get_group_root_files", group_id=int(group_id))
         return data
 
     async def get_group_files_by_folder(self, group_id: str, folder_id: str) -> Any:
-        data = await bot.call_api("get_group_files_by_folder", group_id=int(group_id), folder_id=folder_id)
+        data = await self.bot.call_api("get_group_files_by_folder", group_id=int(group_id), folder_id=folder_id)
         return data
 
     async def get_group_file_url(self, group_id: str, file_id: str, bus_id: str) -> str:
-        url = await bot.call_api("get_group_file_url", group_id=int(group_id), file_id=file_id, busid=bus_id)
+        url = await self.bot.call_api("get_group_file_url", group_id=int(group_id), file_id=file_id, busid=bus_id)
         return url
 
 
@@ -248,6 +316,12 @@ try:
         all_bots[bot.self_id] = DicePPBot(bot.self_id)
         all_bots[bot.self_id].set_client_proxy(proxy)
         await all_bots[bot.self_id].delay_init_command()
+        # 设定Bot自己的昵称，供日志使用
+        try:
+            all_bots[bot.self_id].update_nickname(bot.self_id, "origin", bot.self_id)
+            all_bots[bot.self_id].update_nickname(bot.self_id, "default", "骰娘")
+        except Exception:
+            pass
         dice_log(f"[NB Adapter] Bot {bot.self_id} Connected!")
 
 

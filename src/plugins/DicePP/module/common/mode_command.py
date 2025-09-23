@@ -48,7 +48,7 @@ class ModeCommand(UserCommandBase):
         bot.loc_helper.register_loc_text(LOC_MODE_LIKELY, "找到多个选项，你要找的是不是：{modes}", "。mode模式指令，模糊匹配出现多个结果\nmodes：模糊匹配结果列表")
 
         bot.cfg_helper.register_config(CFG_MODE_ENABLE, "1", "模式指令开关")
-        bot.cfg_helper.register_config(CFG_MODE_DEFAULT, "DND5E", "群内默认模式")
+        bot.cfg_helper.register_config(CFG_MODE_DEFAULT, "DND5E2024", "群内默认模式")
 
         self.mode_dict: Dict[str,List[str]] = {}
         self.mode_field: List[str] = DEFAULT_FIELD

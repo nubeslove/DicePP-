@@ -15,6 +15,9 @@ from core.data import custom_data_chunk, DataChunkBase
 LOC_REBOOT = "master_reboot"
 LOC_SEND_MASTER = "master_send_to_master"
 LOC_SEND_TARGET = "master_send_to_target"
+LOC_LOG_CLEAN = "master_log_clean"
+LOC_LOG_CLEAN_DONE = "master_log_clean_done"
+LOC_LOG_STATUS_DONE = "master_log_status_done"
 
 DC_CTRL = "master_control"
 
@@ -40,6 +43,9 @@ class MasterCommand(UserCommandBase):
                                          "发送消息: {msg} 至 {id} (类型:{type})",
                                          "用.m send指令发送消息时给Master的回复")
         bot.loc_helper.register_loc_text(LOC_SEND_TARGET, "自Master: {msg}", "用.m send指令发送消息时给目标的回复")
+        bot.loc_helper.register_loc_text(LOC_LOG_CLEAN, "开始清理日志文件...", "Master清理日志时开始提示")
+        bot.loc_helper.register_loc_text(LOC_LOG_CLEAN_DONE, "日志清理完成，共删除 {count} 个文件。", "Master清理日志完成提示")
+        bot.loc_helper.register_loc_text(LOC_LOG_STATUS_DONE, "日志状态：文件 {count} 个，总计 {size_kb} KB。最近文件：\n{recent}", "Master查看日志状态")
 
     def can_process_msg(self, msg_str: str, meta: MessageMetaData) -> Tuple[bool, bool, Any]:
         should_proc: bool = False
@@ -108,6 +114,51 @@ class MasterCommand(UserCommandBase):
             self.bot.tick_task = asyncio.create_task(self.bot.tick_loop())
             self.bot.todo_tasks = {}
             feedback = "Redo tick finish!"
+        elif arg_str == "log-clean":
+            # 立即删除本Bot data_path/logs 下所有文件
+            import os, shutil
+            logs_dir = os.path.join(self.bot.data_path, "logs")
+            removed = 0
+            if os.path.isdir(logs_dir):
+                for name in os.listdir(logs_dir):
+                    path = os.path.join(logs_dir, name)
+                    try:
+                        if os.path.isfile(path):
+                            os.remove(path)
+                            removed += 1
+                        else:
+                            shutil.rmtree(path, ignore_errors=True)
+                            removed += 1
+                    except Exception:
+                        pass
+            feedback = self.format_loc(LOC_LOG_CLEAN_DONE, count=removed)
+        elif arg_str.startswith("log"):
+            # 支持格式: .m log status
+            parts = arg_str.split()
+            if len(parts) >= 2 and parts[1] == "status":
+                import os, time
+                logs_dir = os.path.join(self.bot.data_path, "logs")
+                files_info = []
+                total_size = 0
+                if os.path.isdir(logs_dir):
+                    for name in os.listdir(logs_dir):
+                        path = os.path.join(logs_dir, name)
+                        try:
+                            if os.path.isfile(path):
+                                stat = os.stat(path)
+                                total_size += stat.st_size
+                                files_info.append((name, stat.st_mtime, stat.st_size))
+                        except Exception:
+                            pass
+                files_info.sort(key=lambda x: -x[1])
+                recent_lines = []
+                for item in files_info[:5]:
+                    age_sec = int(time.time() - item[1])
+                    recent_lines.append(f"{item[0]} ({age_sec}s前, {int(item[2]/1024)}KB)")
+                recent_txt = "\n".join(recent_lines) if recent_lines else "(无)"
+                feedback = self.format_loc(LOC_LOG_STATUS_DONE, count=len(files_info), size_kb=int(total_size/1024), recent=recent_txt)
+            else:
+                feedback = "未知log子命令，可用: log status | log-clean"
         else:
             feedback = self.get_help("m", meta)
 
@@ -116,8 +167,10 @@ class MasterCommand(UserCommandBase):
 
     def get_help(self, keyword: str, meta: MessageMetaData) -> str:
         if keyword == "m":  # help后的接着的内容
-            return ".m reboot 重启骰娘" \
-                   ".m send 命令骰娘发送信息"
+         return ".m reboot 重启骰娘\n" \
+             ".m send 命令骰娘发送信息\n" \
+             ".m log-clean 清空日志目录\n" \
+             ".m log status 查看日志状态"
         if keyword.startswith("m"):
             if keyword.endswith("reboot"):
                 return "该指令将重启DicePP进程"

@@ -23,6 +23,11 @@ from core.statistics import MetaStatInfo, GroupStatInfo, UserStatInfo
 
 from core.bot.macro import BotMacro, MACRO_PARSE_LIMIT
 from core.bot.variable import BotVariable
+import shutil
+
+# 日志清理相关常量
+LOGS_SUBDIR = "logs"
+LOG_RETENTION_SECONDS = 24 * 3600  # 24小时
 
 NICKNAME_ERROR = "UNDEF_NAME"
 
@@ -220,6 +225,26 @@ class Bot:
         feedback = self.loc_helper.format_loc_text(LOC_DAILY_UPDATE)
         if feedback and feedback != "$":
             await self.send_msg_to_master(feedback)
+
+        # 日志文件自动清理 (超过24小时的log文件删除)
+        try:
+            logs_dir = os.path.join(self.data_path, LOGS_SUBDIR)
+            if os.path.isdir(logs_dir):
+                now_ts = get_current_date_raw()
+                for fname in os.listdir(logs_dir):
+                    fpath = os.path.join(logs_dir, fname)
+                    try:
+                        stat = os.stat(fpath)
+                        # 使用修改时间判断
+                        if now_ts - stat.st_mtime > LOG_RETENTION_SECONDS:
+                            if os.path.isfile(fpath):
+                                os.remove(fpath)
+                            elif os.path.isdir(fpath):
+                                shutil.rmtree(fpath, ignore_errors=True)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
 
     def shutdown(self):
         """销毁bot对象时触发, 可能是bot断连, 或关闭应用导致的"""
