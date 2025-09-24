@@ -1233,15 +1233,25 @@ class LogCommand(UserCommandBase):
                 timestamp = int(str_to_datetime(record.get("time", _now_str())).timestamp())
             except Exception:
                 timestamp = int(time.time())
+            content = record.get("content", "")
+            is_bot_msg = record.get(LOG_KEY_SOURCE) == "bot"
+            roll_result = _detect_roll_result(content) if is_bot_msg else None
+            is_dice = bool(roll_result)
+            command_info: Optional[Dict[str, Any]] = None
+            if roll_result:
+                command_info = {
+                    "cmd": "roll",
+                    "result": roll_result,
+                }
             items.append({
                 "nickname": nickname,
                 "imUserId": user_id,
                 "uniformId": f"QQ:{user_id}" if user_id else "",
                 "time": timestamp,
-                "message": record.get("content", ""),
-                "isDice": record.get(LOG_KEY_SOURCE) == "bot",
+                "message": content,
+                "isDice": is_dice,
                 "commandId": record.get("message_id") or "",
-                "commandInfo": None,
+                "commandInfo": command_info,
                 "rawMsgId": record.get("message_id") or "",
             })
         payload = {
