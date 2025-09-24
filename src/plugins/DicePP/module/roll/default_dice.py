@@ -3,7 +3,7 @@ from typing import Any
 
 from module.roll.roll_config import DICE_TYPE_DEFAULT, DICE_TYPE_MAX, DICE_NUM_MAX
 from module.roll.roll_utils import RollDiceError
-from module.roll.expression import preprocess_roll_exp, parse_roll_exp
+from module.roll.expression import preprocess_roll_exp
 
 DEFAULT_DICE_EXPR = f"D{DICE_TYPE_DEFAULT}"
 _PLACEHOLDER_PATTERN = re.compile(r'([0-9]*)D(?![0-9])')
@@ -24,8 +24,13 @@ def format_default_expr_from_input(raw_expr: str) -> str:
         return f"D{value}"
     if _PLACEHOLDER_PATTERN.search(sanitized):
         raise RollDiceError("默认骰表达式中不能包含未指定面的D")
-    # 校验表达式本身是否可解析
-    parse_roll_exp(sanitized, DICE_TYPE_DEFAULT)
+    # 基础合法性校验：仅允许掷骰表达式常见字符
+    allowed_chars = set("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ+-*/()#<>=,._")
+    if not set(sanitized).issubset(allowed_chars):
+        raise RollDiceError(f"表达式 {sanitized} 含有非法字符")
+    # 至少包含一个骰表达式或数字
+    if "D" not in sanitized and not any(ch.isdigit() for ch in sanitized):
+        raise RollDiceError(f"表达式 {sanitized} 缺少有效骰子或数值")
     return sanitized
 
 
