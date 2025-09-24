@@ -21,9 +21,8 @@ from core.communication import NoticeData, FriendAddNoticeData, GroupIncreaseNot
 from core.communication import RequestData, FriendRequestData, JoinGroupRequestData, InviteGroupRequestData
 from core.command import BotCommandBase, BotSendMsgCommand, BotDelayCommand, BotLeaveGroupCommand, BotSendForwardMsgCommand, BotSendFileCommand
 from utils.logger import dice_log
-from utils.time import get_current_date_str
 
-from module.common.log_command import append_log_record, LOC_LOG_FOLDER_FAIL, should_filter_record, DC_LOG_SESSION, DCK_ACTIVE, DCK_RECORDS, DCK_COLOR_MAP, _pick_color  # type: ignore
+from module.common.log_command import append_log_record  # type: ignore
 
 from adapter.client_proxy import ClientProxy
 
@@ -247,60 +246,6 @@ async def handle_command(bot: NoneBot, event: MessageEvent):
         meta.message_id = str(event.message_id)
     except Exception:
         meta.message_id = None
-
-    # 若是群内“指令”（以 . 或 。 开头）先行记录，避免被其他指令吞掉导致日志缺失
-    if group_id and (raw_msg.startswith('.') or raw_msg.startswith('。')):
-        try:
-            # 检查是否激活
-            is_active = all_bots[bot.self_id].data_manager.get_data(DC_LOG_SESSION, [group_id, DCK_ACTIVE], False)
-            if is_active and not should_filter_record(all_bots[bot.self_id], group_id, user_id, raw_msg, is_bot=False):
-                # 准备 records / color_map
-                try:
-                    records = all_bots[bot.self_id].data_manager.get_data(DC_LOG_SESSION, [group_id, DCK_RECORDS])
-                except Exception:
-                    records = []
-                    all_bots[bot.self_id].data_manager.set_data(DC_LOG_SESSION, [group_id, DCK_RECORDS], records)
-                color_map = all_bots[bot.self_id].data_manager.get_data(DC_LOG_SESSION, [group_id, DCK_COLOR_MAP], {})
-                _pick_color(color_map, user_id)
-                all_bots[bot.self_id].data_manager.set_data(DC_LOG_SESSION, [group_id, DCK_COLOR_MAP], color_map)
-                mid = str(getattr(event, 'message_id', ''))
-                if not any(r.get('message_id') == mid for r in records):
-                    records.append({
-                        'time': get_current_date_str(),
-                        'user_id': user_id,
-                        'nickname': event.sender.nickname or user_id,
-                        'content': raw_msg,
-                        'message_id': mid
-                    })
-                    all_bots[bot.self_id].data_manager.set_data(DC_LOG_SESSION, [group_id, DCK_RECORDS], records)
-        except Exception:
-            pass
-
-    # 仅含 @ 且纯 CQ（plain 文本部分可能为空或全是空白）消息的预记录，避免后续层忽略
-    if group_id and ('[CQ:at,' in raw_msg) and plain_msg.strip() == '':
-        try:
-            is_active = all_bots[bot.self_id].data_manager.get_data(DC_LOG_SESSION, [group_id, DCK_ACTIVE], False)
-            if is_active and not should_filter_record(all_bots[bot.self_id], group_id, user_id, raw_msg, is_bot=False):
-                try:
-                    records = all_bots[bot.self_id].data_manager.get_data(DC_LOG_SESSION, [group_id, DCK_RECORDS])
-                except Exception:
-                    records = []
-                    all_bots[bot.self_id].data_manager.set_data(DC_LOG_SESSION, [group_id, DCK_RECORDS], records)
-                color_map = all_bots[bot.self_id].data_manager.get_data(DC_LOG_SESSION, [group_id, DCK_COLOR_MAP], {})
-                _pick_color(color_map, user_id)
-                all_bots[bot.self_id].data_manager.set_data(DC_LOG_SESSION, [group_id, DCK_COLOR_MAP], color_map)
-                mid = str(getattr(event, 'message_id', ''))
-                if not any(r.get('message_id') == mid for r in records):
-                    records.append({
-                        'time': get_current_date_str(),
-                        'user_id': user_id,
-                        'nickname': event.sender.nickname or user_id,
-                        'content': raw_msg,
-                        'message_id': mid
-                    })
-                    all_bots[bot.self_id].data_manager.set_data(DC_LOG_SESSION, [group_id, DCK_RECORDS], records)
-        except Exception:
-            pass
 
     # 让机器人处理信息
     await all_bots[bot.self_id].process_message(plain_msg, meta)
