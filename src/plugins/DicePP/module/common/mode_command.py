@@ -25,10 +25,10 @@ MODE_FILE_PATH = "Config/mode_setting.xlsx"
 
 DEFAULT_FIELD = ['mode','default_dice', 'query_database']
 DEFAULT_TABLE = [
-    ["DND5E", "20", "DND5E"],
-    ["PF1E", "20", "PF1E"],
-    ["COC7", "100", "COC7"],
-    ["NECHRONICA", "10", "NECHRONICA"],
+    ["DND5E", "D20", "DND5E"],
+    ["PF1E", "D20", "PF1E"],
+    ["COC7", "D100", "COC7"],
+    ["NECHRONICA", "D10", "NECHRONICA"],
 ]
 
 @custom_user_command(readable_name="模式指令", priority=-2,
