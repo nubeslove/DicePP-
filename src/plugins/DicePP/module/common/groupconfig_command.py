@@ -22,7 +22,7 @@ DC_GROUPCONFIG = "group_config"
 DEFAULT_GROUP_CONFIG = {
     #基础内容
     "backroom" : False,
-    "default_dice" : 20,
+    "default_dice" : "D20",
     "mode" : "",
     #功能开关
     "roll_dnd_enable" : True,

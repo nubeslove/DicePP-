@@ -13,6 +13,11 @@ from core.localization import LOC_FUNC_DISABLE
 from module.common import try_use_point, DC_GROUPCONFIG
 
 from module.roll import RollResult, RollExpression, preprocess_roll_exp, parse_roll_exp, sift_roll_exp_and_reason, RollDiceError
+from module.roll.default_dice import (
+    format_default_expr_from_storage,
+    apply_default_expr,
+    extract_default_type_hint,
+)
 
 LOC_ROLL_RESULT = "roll_result"
 LOC_ROLL_RESULT_REASON = "roll_result_reason"
@@ -234,8 +239,14 @@ class RollDiceCommand(UserCommandBase):
         # 解析表达式并生成结果
         try:
             exp_str = preprocess_roll_exp(exp_str)
-            default_dice: int = self.bot.data_manager.get_data(DC_GROUPCONFIG,[meta.group_id,"default_dice"],default_val=20) if meta.group_id else 20
-            exp: RollExpression = parse_roll_exp(exp_str,default_dice)
+            if meta.group_id:
+                stored_default = self.bot.data_manager.get_data(DC_GROUPCONFIG, [meta.group_id, "default_dice"], default_val="D20")
+            else:
+                stored_default = "D20"
+            default_expr = format_default_expr_from_storage(stored_default)
+            exp_str = apply_default_expr(exp_str, default_expr)
+            default_type_hint = extract_default_type_hint(default_expr)
+            exp: RollExpression = parse_roll_exp(exp_str, default_type_hint)
             res_list: List[RollResult] = [exp.get_result() for _ in range(times)]
         except RollDiceError as e:
             feedback = e.info

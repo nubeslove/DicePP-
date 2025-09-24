@@ -7,14 +7,27 @@ DATE_STR_FORMAT_DAY = "%Y_%m_%d"
 DATE_STR_FORMAT_WEEK = "%Y_%W"
 DATE_STR_FORMAT_MONTH = "%Y_%m"
 
+# 兼容历史数据中使用下划线或短横线分隔的时间格式
+_DATE_STR_COMPAT_FORMATS = [
+    DATE_STR_FORMAT,
+    "%Y-%m-%d %H:%M:%S",
+    "%Y_%m_%d %H:%M:%S",
+    "%Y-%m-%d_%H_%M_%S",
+    "%Y_%m_%d_%H_%M_%S",
+]
+
 
 def str_to_datetime(input_str: str) -> datetime:
     """
-    将字符串表示的时间转换为datetime格式, 字符串格式由DATE_STR_FORMAT定义, 默认是%Y/%m/%d %H:%M:%S
+    将字符串表示的时间转换为datetime格式, 支持多种历史格式兼容
     """
-    result = datetime.datetime.strptime(input_str, DATE_STR_FORMAT)
-    result = result.replace(tzinfo=china_tz)
-    return result
+    for fmt in _DATE_STR_COMPAT_FORMATS:
+        try:
+            result = datetime.datetime.strptime(input_str, fmt)
+            return result.replace(tzinfo=china_tz)
+        except ValueError:
+            continue
+    raise ValueError(f"无法解析的时间格式: {input_str}")
 
 
 def datetime_to_str(input_datetime: datetime) -> str:
