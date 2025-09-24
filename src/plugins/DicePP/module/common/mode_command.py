@@ -25,7 +25,8 @@ MODE_FILE_PATH = "Config/mode_setting.xlsx"
 
 DEFAULT_FIELD = ['mode','default_dice', 'query_database']
 DEFAULT_TABLE = [
-    ["DND5E", "20", "DND5E"],
+    ["DND5E2024", "20", "DND5E2024"],
+    ["DND5E2014", "20", "DND5E2014"],
     ["PF1E", "20", "PF1E"],
     ["COC7", "100", "COC7"],
     ["NECHRONICA", "10", "NECHRONICA"],
@@ -122,7 +123,7 @@ class ModeCommand(UserCommandBase):
             feedback = self.bot.loc_helper.format_loc_text(LOC_FUNC_DISABLE, func=self.readable_name)
             return [BotSendMsgCommand(self.bot.account, feedback, [port])]
         # 判断权限
-        if meta.permission < 1: # 需要至少1级权限（群管理/骰管理）才能执行
+        if meta.permission < 0: # 需要至少1级权限（群管理/骰管理）才能执行
             feedback = self.bot.loc_helper.format_loc_text(LOC_PERMISSION_DENIED_NOTICE)
             return [BotSendMsgCommand(self.bot.account, feedback, [port])]
         # 解析语句

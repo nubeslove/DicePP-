@@ -187,7 +187,7 @@ class LogCommand(UserCommandBase):
             ".log off 结束记录并生成文件(docx+txt)\n"
             ".log set  查看/切换过滤开关 (支持: outside/场外发言过滤, command/指令过滤, bot/bot过滤, media/图片表情过滤, forum_code/论坛代码生成)\n"
             ".log set <选项> 切换对应过滤。\n"
-            "过滤说明: \n场外发言过滤=过滤括号内信息\n指令过滤=过滤以句号起始指令\nbot过滤=过滤骰娘自身消息\n图片表情过滤=过滤图片和表情消息。"
+            "过滤说明: \n场外发言过滤=过滤括号内信息\n指令过滤=过滤以句号起始指令\nbot过滤=过滤骰娘自身消息\n图片表情过滤=过滤图片和表情消息。\n论坛代码生成=生成一份符合苹果园等论坛编辑的代码文件"
         )
         self.log_folder_fail = "权限不足，无法创建跑团log文件夹，已上传至根目录。"
         self.log_folder_hint = "日志文件将上传到群文件夹: 跑团log"

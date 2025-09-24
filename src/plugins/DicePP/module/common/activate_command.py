@@ -101,7 +101,7 @@ class ActivateCommand(UserCommandBase):
             bot_show = bot_show + "\n" if bot_show else ""
             feedback = f"{bot_show}{BOT_SHOW_APPEND}"
         else:
-            if meta.permission < 1: # 其他指令需要至少1级权限（群管理/骰管理）才能执行
+            if meta.permission < 0: # 其他指令需要至少1级权限（群管理/骰管理）才能执行
                 feedback = self.bot.loc_helper.format_loc_text(LOC_PERMISSION_DENIED_NOTICE)
             elif mode == "on": # 开启骰娘
                 activate_data = get_default_activate_data(True)
