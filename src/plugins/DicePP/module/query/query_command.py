@@ -345,7 +345,7 @@ class QueryCommand(UserCommandBase):
 
         bot.cfg_helper.register_config(CFG_QUERY_ENABLE, "1", "查询指令开关")
         bot.cfg_helper.register_config(CFG_QUERY_DATA_PATH, "./QueryData", "查询指令的数据来源，已弃用，请勿修改")
-        bot.cfg_helper.register_config(CFG_QUERY_PRIVATE_DATABASE, "DND5E2024", "查询指令私聊时默认使用的数据库，群聊使用数据库以群配置为准")
+        bot.cfg_helper.register_config(CFG_QUERY_PRIVATE_DATABASE, "DND5E2014", "查询指令私聊时默认使用的数据库，群聊使用数据库以群配置为准")
         #已弃用，请使用mode_command那边的CFG。
 
     def delay_init(self) -> List[str]:
