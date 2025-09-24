@@ -136,7 +136,7 @@ class ModeCommand(UserCommandBase):
                 LOC_FUNC_DISABLE, func=self.readable_name)
             return [BotSendMsgCommand(self.bot.account, feedback, [port])]
         # 判断权限
-        if meta.permission < 1:  # 需要至少1级权限（群管理/骰管理）才能执行
+        if meta.permission < 0:  # 需要至少1级权限（群管理/骰管理）才能执行
             feedback = self.bot.loc_helper.format_loc_text(
                 LOC_PERMISSION_DENIED_NOTICE)
             return [BotSendMsgCommand(self.bot.account, feedback, [port])]
