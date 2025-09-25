@@ -87,6 +87,8 @@ def _replace_placeholder(expr: str, default_expr: str, default_wrapped: str) -> 
     result = []
     length = len(expr)
     index = 0
+    simple_match = _SIMPLE_D_PATTERN.match(default_expr)
+    simple_type = int(simple_match.group(1)) if simple_match else None
     while index < length:
         char = expr[index]
         # 处理形如数字+D的占位符
@@ -97,7 +99,10 @@ def _replace_placeholder(expr: str, default_expr: str, default_wrapped: str) -> 
             if index < length and expr[index] == 'D' and (index + 1 == length or not expr[index + 1].isdigit()):
                 if digit_start == 0 or not expr[digit_start - 1].isalnum():
                     count = int(expr[digit_start:index])
-                    result.append(_repeat_default(default_expr, count))
+                    if simple_type is not None:
+                        result.append(f"{count}D{simple_type}")
+                    else:
+                        result.append(_repeat_default(default_expr, count))
                     index += 1
                     continue
             # 回退: 不是占位符, 原样写回数字片段
@@ -106,7 +111,10 @@ def _replace_placeholder(expr: str, default_expr: str, default_wrapped: str) -> 
         # 处理裸D的占位符
         if char == 'D' and (index + 1 == length or not expr[index + 1].isdigit()):
             if index == 0 or not expr[index - 1].isalnum():
-                result.append(default_wrapped)
+                if simple_type is not None:
+                    result.append(f"1D{simple_type}")
+                else:
+                    result.append(default_wrapped)
                 index += 1
                 continue
         result.append(char)
