@@ -3,7 +3,7 @@ import openpyxl
 import os
 
 from core.bot import Bot
-from core.data import DataChunkBase, custom_data_chunk
+from core.data import DataChunkBase, custom_data_chunk, DC_USER_DATA
 from core.command.const import *
 from core.command import UserCommandBase, custom_user_command
 from core.command import BotCommandBase, BotSendMsgCommand
@@ -17,6 +17,7 @@ LOC_MODE_INVALID = "mode_invalid"
 LOC_MODE_NOT_EXIST = "mode_not_exist"
 LOC_MODE_LIST = "mode_list"
 LOC_MODE_LIKELY = "mode_likely"
+LOC_MODE_CURRENT = "mode_current"
 
 CFG_MODE_ENABLE = "mode_enable"
 CFG_MODE_DEFAULT = "mode_default"
@@ -34,7 +35,7 @@ DEFAULT_TABLE = [
 
 
 @custom_user_command(readable_name="模式指令", priority=-2,
-                     flag=DPP_COMMAND_FLAG_MANAGE, group_only=True
+                     flag=DPP_COMMAND_FLAG_MANAGE, group_only=False
                      )
 class ModeCommand(UserCommandBase):
     """
@@ -53,6 +54,7 @@ class ModeCommand(UserCommandBase):
             LOC_MODE_LIST, "以下是可用的模式列表：{modes}", "。mode模式指令查看可用模式列表\nmodes：可用模式列表")
         bot.loc_helper.register_loc_text(
             LOC_MODE_LIKELY, "找到多个选项，你要找的是不是：{modes}", "。mode模式指令，模糊匹配出现多个结果\nmodes：模糊匹配结果列表")
+        bot.loc_helper.register_loc_text(LOC_MODE_CURRENT, "当前模式为{new_mode}（默认{dice}面骰点，查询数据库使用{database}.db（如果有））。", ".mode 不带参数时显示当前模式")
 
         bot.cfg_helper.register_config(CFG_MODE_ENABLE, "1", "模式指令开关")
         bot.cfg_helper.register_config(CFG_MODE_DEFAULT, "DND5E2024", "群内默认模式")
@@ -105,19 +107,23 @@ class ModeCommand(UserCommandBase):
         should_proc: bool = True
         should_pass: bool = False
         hint: str = ""
-        # 判断是否初始化，没有初始化则进行一次初始化
-        if self.bot.data_manager.get_data(DC_GROUPCONFIG, [meta.group_id, "mode"], default_val="") == "":
-            default_mode = str(
-                self.bot.cfg_helper.get_config(CFG_MODE_DEFAULT)[0])
+        # 判断是否初始化，没有初始化则进行一次初始化（群/私聊分别处理）
+        if meta.group_id:
+            dc = DC_GROUPCONFIG
+            target_id = meta.group_id
+        else:
+            dc = DC_USER_DATA
+            target_id = meta.user_id
+
+        if self.bot.data_manager.get_data(dc, [target_id, "mode"], default_val="") == "":
+            default_mode = str(self.bot.cfg_helper.get_config(CFG_MODE_DEFAULT)[0])
             if default_mode != "":
-                self.switch_mode(meta.group_id, default_mode)
+                # 指定 is_private 以便 switch_mode 写入正确的数据块
+                self.switch_mode(target_id, default_mode, is_private=(not meta.group_id))
             else:
-                self.bot.data_manager.set_data(
-                    DC_GROUPCONFIG, [meta.group_id, "mode"], "NULL")
-        # 判断指令
-        if not meta.group_id:
-            should_proc = False
-        elif msg_str.startswith(".模式"):
+                self.bot.data_manager.set_data(dc, [target_id, "mode"], "NULL")
+        # 判断指令（支持群聊与私聊）
+        if msg_str.startswith(".模式"):
             hint = msg_str[3:].strip()
         elif msg_str.startswith(".mode"):
             hint = msg_str[5:].strip()
@@ -136,72 +142,113 @@ class ModeCommand(UserCommandBase):
             feedback = self.bot.loc_helper.format_loc_text(
                 LOC_FUNC_DISABLE, func=self.readable_name)
             return [BotSendMsgCommand(self.bot.account, feedback, [port])]
-        # 判断权限
-        if meta.permission < 0: # 需要至少1级权限（群管理/骰管理）才能执行
+        # 判断权限：群内需要权限>=0才能执行；私聊允许用户修改自己的私聊模式
+        if meta.group_id and meta.permission < 0: # 群内执行需至少0级权限（群管理/骰管理）
             feedback = self.bot.loc_helper.format_loc_text(LOC_PERMISSION_DENIED_NOTICE)
             return [BotSendMsgCommand(self.bot.account, feedback, [port])]
         # 解析语句
         arg_var = hint.strip().upper()
 
+        # 依据消息来源选择保存位置：群配置写入 DC_GROUPCONFIG，私聊写入 DC_USER_DATA
+        is_private = not bool(meta.group_id)
+        target_id = meta.user_id if is_private else meta.group_id
+
         if arg_var == "DEFAULT" or arg_var == "CLEAR":
             feedback = self.switch_mode(
-                meta.group_id, self.bot.cfg_helper.get_config(CFG_MODE_DEFAULT)[0])
+                target_id, self.bot.cfg_helper.get_config(CFG_MODE_DEFAULT)[0], is_private=is_private)
         elif arg_var != "":
-            feedback = self.switch_mode(meta.group_id, arg_var)
+            feedback = self.switch_mode(target_id, arg_var, is_private=is_private)
         else:
-            feedback = self.bot.loc_helper.format_loc_text(
-                LOC_MODE_LIST, modes="、".join(self.mode_dict.keys()))
+            # 显示当前目标（群/私聊）的模式
+            if is_private:
+                dc = DC_USER_DATA
+            else:
+                dc = DC_GROUPCONFIG
+            stored_mode = self.bot.data_manager.get_data(dc, [target_id, "mode"], default_val="")
+            # 处理空/NULL
+            if not stored_mode or stored_mode == "NULL":
+                stored_mode = str(self.bot.cfg_helper.get_config(CFG_MODE_DEFAULT)[0])
+
+            # 尝试从 mode_dict 中找到对应的显示信息
+            mode_key = None
+            for k in self.mode_dict.keys():
+                if k.upper() == str(stored_mode).upper():
+                    mode_key = k
+                    break
+
+            if mode_key is not None:
+                dice = self.mode_dict[mode_key][0] if len(self.mode_dict[mode_key]) > 0 else ""
+                database = self.mode_dict[mode_key][1] if len(self.mode_dict[mode_key]) > 1 else ""
+            else:
+                # 回退到读取已保存的具体字段（若存在）或使用默认回退值
+                dice = self.bot.data_manager.get_data(dc, [target_id, "default_dice"], default_val="D20")
+                database = self.bot.data_manager.get_data(dc, [target_id, "query_database"], default_val=self.bot.cfg_helper.get_config("query_private_database")[0] if self.bot.cfg_helper.get_config("query_private_database") else "")
+
+            current_text = self.bot.loc_helper.format_loc_text(LOC_MODE_CURRENT, new_mode=stored_mode, dice=dice, database=database)
+            list_text = self.bot.loc_helper.format_loc_text(LOC_MODE_LIST, modes="、".join(self.mode_dict.keys()))
+            feedback = current_text + "\n" + list_text
 
         return [BotSendMsgCommand(self.bot.account, feedback, [port])]
 
-    def switch_mode(self, group_id: str, mode: str) -> str:
+    def switch_mode(self, target_id: str, mode: str, is_private: bool = False) -> str:
         # 居然不能引用，只能在这再搭一个了
-        def update_group_config(group_id: str, setting: List[str], var: List[str]):
-            self.bot.data_manager.delete_data(DC_GROUPCONFIG, [group_id])
+        def update_group_config(tid: str, setting: List[str], var: List[str], is_private_inner: bool = False):
+            dc = DC_USER_DATA if is_private_inner else DC_GROUPCONFIG
+            # 清除原有配置
+            self.bot.data_manager.delete_data(dc, [tid])
             for index in range(len(setting)):
                 true_var: Any
-                if var[index].isdigit():
+                if isinstance(var[index], str) and var[index].isdigit():
                     true_var = int(var[index])
-                elif var[index].upper() == "TRUE":
+                elif isinstance(var[index], str) and var[index].upper() == "TRUE":
                     true_var = True
-                elif var[index].upper() == "FALSE":
+                elif isinstance(var[index], str) and var[index].upper() == "FALSE":
                     true_var = False
                 else:
                     true_var = var[index]
                 self.bot.data_manager.set_data(
-                    DC_GROUPCONFIG, [group_id, setting[index]], true_var)
+                    dc, [tid, setting[index]], true_var)
 
         matched = False
         feedback = ""
         # 尝试精准匹配
         for key in self.mode_dict.keys():
-            key = key.upper()
-            if key.upper() == mode:  # 精准匹配
-                update_group_config(group_id, self.mode_field, [
-                                    key]+self.mode_dict[key])
+            ukey = key.upper()
+            if ukey == mode:  # 精准匹配
+                update_group_config(target_id, self.mode_field, [
+                                    key]+self.mode_dict[key], is_private_inner=is_private)
                 feedback = self.bot.loc_helper.format_loc_text(
                     LOC_MODE_SWITCH, new_mode=key, dice=self.mode_dict[key][0], database=self.mode_dict[key][1])
                 matched = True
-        # 尝试精准匹配
+        # 尝试模糊匹配
         if not matched:
             result: List[str] = []
             for key in self.mode_dict.keys():
-                key = key.upper()
-                if mode in key:
-                    result.append(key)
+                ukey = key.upper()
+                if mode in ukey:
+                    result.append(ukey)
             if len(result) > 1:
                 feedback = self.bot.loc_helper.format_loc_text(
                     LOC_MODE_LIKELY, modes="、".join(result))
             elif len(result) == 1:
-                key = result[0]
-                update_group_config(group_id, self.mode_field, [
-                                    key]+self.mode_dict[key])
-                feedback = self.bot.loc_helper.format_loc_text(
-                    LOC_MODE_SWITCH, new_mode=key, dice=self.mode_dict[key][0], database=self.mode_dict[key][1])
-                matched = True
+                key_upper = result[0]
+                # 找到原始 key 名称（mode_dict 的键）
+                orig_key = None
+                for k in self.mode_dict.keys():
+                    if k.upper() == key_upper:
+                        orig_key = k
+                        break
+                if orig_key is None:
+                    feedback = self.bot.loc_helper.format_loc_text(LOC_MODE_NOT_EXIST)
+                else:
+                    update_group_config(target_id, self.mode_field, [
+                                        orig_key]+self.mode_dict[orig_key], is_private_inner=is_private)
+                    feedback = self.bot.loc_helper.format_loc_text(
+                        LOC_MODE_SWITCH, new_mode=orig_key, dice=self.mode_dict[orig_key][0], database=self.mode_dict[orig_key][1])
+                    matched = True
             else:
                 feedback = self.bot.loc_helper.format_loc_text(
-                    LOC_MODE_NOT_EXIST)+self.bot.loc_helper.format_loc_text(LOC_MODE_LIST, modes="、".join(self.mode_dict.keys()))
+                    LOC_MODE_NOT_EXIST) + self.bot.loc_helper.format_loc_text(LOC_MODE_LIST, modes="、".join(self.mode_dict.keys()))
 
         return feedback
 

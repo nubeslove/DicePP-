@@ -242,7 +242,8 @@ class RollDiceCommand(UserCommandBase):
             if meta.group_id:
                 stored_default = self.bot.data_manager.get_data(DC_GROUPCONFIG, [meta.group_id, "default_dice"], default_val="D20")
             else:
-                stored_default = "D20"
+                # 私聊时尝试从用户配置读取默认骰面（支持私聊切换模式产生的设置）
+                stored_default = self.bot.data_manager.get_data(DC_USER_DATA, [meta.user_id, "default_dice"], default_val="D20")
             default_expr = format_default_expr_from_storage(stored_default)
             exp_str = apply_default_expr(exp_str, default_expr)
             default_type_hint = extract_default_type_hint(default_expr)
