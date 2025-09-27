@@ -28,6 +28,8 @@ DEFAULT_FIELD = ['mode', 'default_dice', 'query_database']
 DEFAULT_TABLE = [
     ["DND5E2024", "20", "DND5E2024"],
     ["DND5E2014", "20", "DND5E2014"],
+    ["DND5E混用", "20", "DND5E混合"],
+    ["DND3R", "20", "DND3R"],
     ["PF1E", "20", "PF1E"],
     ["COC7", "100", "COC7"],
     ["NECHRONICA", "10", "NECHRONICA"],
