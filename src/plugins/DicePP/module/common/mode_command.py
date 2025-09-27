@@ -31,6 +31,8 @@ DEFAULT_TABLE = [
     ["DND5E混用", "20", "DND5E混合"],
     ["DND3R", "20", "DND3R"],
     ["PF1E", "20", "PF1E"],
+    ["PF2E", "20", "PF2E"],
+    ["PF2R", "20", "PF2R"],
     ["COC7", "100", "COC7"],
     ["NECHRONICA", "10", "NECHRONICA"],
 ]
