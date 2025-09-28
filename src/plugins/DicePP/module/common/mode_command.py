@@ -198,8 +198,7 @@ class ModeCommand(UserCommandBase):
         # 居然不能引用，只能在这再搭一个了
         def update_group_config(tid: str, setting: List[str], var: List[str], is_private_inner: bool = False):
             dc = DC_USER_DATA if is_private_inner else DC_GROUPCONFIG
-            # 清除原有配置
-            self.bot.data_manager.delete_data(dc, [tid])
+            # 不再清除整个目标数据（避免删除用户统计等关键字段），仅逐项覆盖/设置字段
             for index in range(len(setting)):
                 true_var: Any
                 if isinstance(var[index], str) and var[index].isdigit():
