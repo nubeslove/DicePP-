@@ -500,15 +500,19 @@ def get_roll_state_loc_text(bot: Bot, res_list: List[RollResult]):
 def record_roll_data(bot: Bot, meta: MessageMetaData, res_list: List[RollResult]):
     """统计掷骰数据"""
     roll_times = len(res_list)
-    # 更新用户数据
-    user_stat: UserStatInfo = bot.data_manager.get_data(DC_USER_DATA, [meta.user_id, DCK_USER_STAT], get_ref=True)
+    # 更新用户数据，缺失时使用 default_gen 初始化（避免 DataManagerError）
+    try:
+        user_stat: UserStatInfo = bot.data_manager.get_data(DC_USER_DATA, [meta.user_id, DCK_USER_STAT], get_ref=True)
+    except DataManagerError:
+        # 如果未初始化，创建一个新的 UserStatInfo 存入
+        user_stat: UserStatInfo = bot.data_manager.get_data(DC_USER_DATA, [meta.user_id, DCK_USER_STAT], default_gen=UserStatInfo, get_ref=True)
     user_stat.roll.times.inc(roll_times)
     for res in (res for res in res_list if res.d20_num == 1):
         user_stat.roll.d20.record(int(res.val_list[0]))
     # 更新群数据
     if not meta.group_id:
         return
-    group_stat: GroupStatInfo = bot.data_manager.get_data(DC_GROUP_DATA, [meta.group_id, DCK_GROUP_STAT], get_ref=True)
+    group_stat: GroupStatInfo = bot.data_manager.get_data(DC_GROUP_DATA, [meta.group_id, DCK_GROUP_STAT], default_gen=GroupStatInfo, get_ref=True)
     group_stat.roll.times.inc(roll_times)
     for res in (res for res in res_list if res.d20_num == 1):
         group_stat.roll.d20.record(int(res.val_list[0]))
