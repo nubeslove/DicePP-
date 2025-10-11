@@ -1291,7 +1291,7 @@ class LogCommand(UserCommandBase):
         form = {
             'name': payload_data['name'],
             'uniform_id': f"QQ:{uploader_id}",
-            'client': 'SealDice',
+            'client': 'DicePP',
             'version': str(UPLOAD_VERSION),
         }
         headers = {}
