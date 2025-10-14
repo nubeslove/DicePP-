@@ -2,8 +2,11 @@
 掷骰工具
 """
 
-from random import randint
 from typing import List, Tuple
+
+from random import randint
+
+from .karma_runtime import get_runtime
 
 
 class RollDiceError(Exception):
@@ -21,6 +24,9 @@ def roll_a_dice(dice_type: int) -> int:
     """
     返回一颗dice_type面骰的结果
     """
+    runtime = get_runtime()
+    if runtime is not None:
+        return runtime.roll(dice_type)
     return randint(1, dice_type)
 
 
