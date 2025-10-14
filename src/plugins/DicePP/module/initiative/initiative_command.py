@@ -297,7 +297,9 @@ class InitiativeCommand(UserCommandBase):
             hp_dict: Dict[str, HPInfo] = self.bot.data_manager.get_data(DC_CHAR_HP, [meta.group_id], default_val={})
             char_dict: Dict[str, DNDCharInfo] = self.bot.data_manager.get_data(DC_CHAR_DND, [meta.group_id], default_val={})
             hp_dict.update(dict([(user_id, char_info.hp_info) for user_id, char_info in char_dict.items()]))
-            init_info = ""
+            turn_index = max(0, min(len(init_data.entities) - 1, init_data.turn - 1))
+            current_entity = init_data.entities[turn_index]
+            init_info = f"当前是第{init_data.round}轮,{current_entity.name}的回合\n"
             for index, entity in enumerate(init_data.entities):
                 entity: InitEntity = entity
                 # 生命值信息

@@ -114,105 +114,165 @@ class BattlerollCommand(UserCommandBase):
             except DataManagerError:
                 feedback = self.format_loc(LOC_BR_NO_INIT)
                 return [BotSendMsgCommand(self.bot.account, feedback, [port])]
-            # init_data.entities = sorted(init_data.entities, key=lambda x: -x.init)
-            target_round: int = init_data.round
-            target_turn: int = init_data.turn
-            # 若无额外数值则显示当前回合，若额外有个数值则修改回合
-            if not arg_str:
-                feedback = self.format_loc(LOC_BR_ROUND,round=str(target_round),turn=str(target_turn),turn_name=init_data.entities[target_turn-1].name)
-                return [BotSendMsgCommand(self.bot.account, feedback, [port])]
-            elif arg_str.startswith("+"): # 检查是否为直接增加当前回合/轮次数
-                modify_var: int = 0
-                if arg_str == "++" or arg_str == "+":
-                    modify_var = 1
-                elif arg_str[1:].isdigit():
-                    modify_var = int(arg_str[1:])
-                else:
-                    return [BotSendMsgCommand(self.bot.account, self.format_loc(LOC_BR_ERROR_NOT_NUMBER), [port])]
-                if mode == "turn":
-                    target_turn += modify_var
-                else: # if mode == "round"
-                    target_round += modify_var
-            elif arg_str.startswith("-"): # 检查是否为直接减少当前回合/轮次数
-                if arg_str == "--" or arg_str == "-":
-                    modify_var = 1
-                elif arg_str[1:].isdigit():
-                    modify_var = int(arg_str[1:])
-                else:
-                    return [BotSendMsgCommand(self.bot.account, self.format_loc(LOC_BR_ERROR_NOT_NUMBER), [port])]
-                if mode == "turn":
-                    target_turn -= modify_var
-                else: # if mode == "round"
-                    target_round -= modify_var
-            elif arg_str.startswith("="): # 检查是否为等于号直接修改
-                if arg_str[1:].isdigit():
+            if not init_data.entities:
+                return [BotSendMsgCommand(self.bot.account, self.format_loc(LOC_BR_NO_INIT), [port])]
+
+            entity_count: int = len(init_data.entities)
+            turns_in_round: int = entity_count if entity_count else 1
+            prev_round: int = init_data.round
+            prev_turn: int = init_data.turn
+            prev_turns_in_round: int = init_data.turns_in_round
+            target_round: int = prev_round
+            target_turn: int = prev_turn
+            query_only: bool = (arg_str == "")
+
+            if not query_only:
+                if arg_str.startswith("+"):  # 检查是否为直接增加当前回合/轮次数
+                    modify_var: int = 0
+                    if arg_str == "++" or arg_str == "+":
+                        modify_var = 1
+                    elif arg_str[1:].isdigit():
+                        modify_var = int(arg_str[1:])
+                    else:
+                        return [BotSendMsgCommand(self.bot.account, self.format_loc(LOC_BR_ERROR_NOT_NUMBER), [port])]
                     if mode == "turn":
-                        target_turn = int(arg_str[1:])
-                    else: # if mode == "round"
-                        target_round = int(arg_str[1:])
-                    # 因为使用等于号，还得检查是否超出轮内回合数
-                    if target_turn > init_data.turns_in_round:
-                        return [BotSendMsgCommand(self.bot.account, self.format_loc(LOC_BR_ERROR_TOO_BIG), [port])]
-                    elif target_turn < 1:
-                        return [BotSendMsgCommand(self.bot.account, self.format_loc(LOC_BR_ERROR_TOO_SMALL), [port])]
-                else:
-                    return [BotSendMsgCommand(self.bot.account, self.format_loc(LOC_BR_ERROR_NOT_NUMBER), [port])]
-            elif arg_str.isdigit(): #检查是否为数值，是的话直接替换，同等号
-                if mode == "turn":
-                    target_turn = int(arg_str)
-                else: # if mode == "round"
-                    target_round = int(arg_str)
-            else: # 如果前面都不是，那么猜测这是一次指定对象的（代码从隔壁抄的）
-                name_list = [entity.name for entity in init_data.entities]
-                match_num = sum([e_name == arg_str for e_name in name_list])  
-                if match_num == 1:  # 正好有一个同名条目
-                    for i, entity in enumerate(init_data.entities):
-                        if entity.name == arg_str:
-                            target_turn = i + 1
-                            break
-                elif match_num == 0:  # 没有同名条目, 进入模糊搜索
-                    possible_res: List[str] = match_substring(arg_str, name_list)
-                    if len(possible_res) == 0:  # 没有结果
-                        return [BotSendMsgCommand(self.bot.account, self.format_loc(LOC_BR_ERROR_NOT_FOUND), [port])]
-                    elif len(possible_res) > 1:  # 多个可能的结果
-                        return [BotSendMsgCommand(self.bot.account, self.format_loc(LOC_BR_ERROR_TOO_MUCH_FOUND), [port])]
-                    elif len(possible_res) == 1:
+                        target_turn += modify_var
+                    else:  # if mode == "round"
+                        target_round += modify_var
+                elif arg_str.startswith("-"):  # 检查是否为直接减少当前回合/轮次数
+                    if arg_str == "--" or arg_str == "-":
+                        modify_var = 1
+                    elif arg_str[1:].isdigit():
+                        modify_var = int(arg_str[1:])
+                    else:
+                        return [BotSendMsgCommand(self.bot.account, self.format_loc(LOC_BR_ERROR_NOT_NUMBER), [port])]
+                    if mode == "turn":
+                        target_turn -= modify_var
+                    else:  # if mode == "round"
+                        target_round -= modify_var
+                elif arg_str.startswith("="):  # 检查是否为等于号直接修改
+                    if arg_str[1:].isdigit():
+                        if mode == "turn":
+                            target_turn = int(arg_str[1:])
+                            if target_turn > turns_in_round:
+                                return [BotSendMsgCommand(self.bot.account, self.format_loc(LOC_BR_ERROR_TOO_BIG), [port])]
+                            elif target_turn < 1:
+                                return [BotSendMsgCommand(self.bot.account, self.format_loc(LOC_BR_ERROR_TOO_SMALL), [port])]
+                        else:  # if mode == "round"
+                            target_round = int(arg_str[1:])
+                    else:
+                        return [BotSendMsgCommand(self.bot.account, self.format_loc(LOC_BR_ERROR_NOT_NUMBER), [port])]
+                elif arg_str.isdigit():  # 检查是否为数值，是的话直接替换，同等号
+                    if mode == "turn":
+                        target_turn = int(arg_str)
+                    else:  # if mode == "round"
+                        target_round = int(arg_str)
+                else:  # 如果前面都不是，那么猜测这是一次指定对象的
+                    name_list = [entity.name for entity in init_data.entities]
+                    match_num = sum([e_name == arg_str for e_name in name_list])
+                    if match_num == 1:  # 正好有一个同名条目
                         for i, entity in enumerate(init_data.entities):
-                            if entity.name == possible_res[0]:
+                            if entity.name == arg_str:
                                 target_turn = i + 1
                                 break
-                else: #if match_num > 1:  # 多于一个同名条目
-                    return [BotSendMsgCommand(self.bot.account, self.format_loc(LOC_BR_ERROR_TOO_MUCH_FOUND), [port])]
-            # 经过修改后，检查是否回合超出轮内回合数
-            if target_turn > init_data.turns_in_round:
-                target_turn -= 1
-                target_round += target_turn // init_data.turns_in_round
-                target_turn = (target_turn % init_data.turns_in_round) + 1
-            elif target_turn < 1:
-                target_turn -= 1
-                target_round -= (-target_turn) // init_data.turns_in_round
-                target_turn = init_data.turns_in_round - (-target_turn % init_data.turns_in_round) + 1
-            # 修改回合数与轮次数，并修改数据
-            if init_data.round != target_round:
-                init_data.round = target_round
-                feedbacks.append(self.format_loc(LOC_BR_ROUND_MOD,round=str(target_round)))
-            if init_data.turn != target_turn:
-                init_data.turn = target_turn
-                feedbacks.append(self.format_loc(LOC_BR_TURN_MOD,turn=str(target_turn)))
+                    elif match_num == 0:  # 没有同名条目, 进入模糊搜索
+                        possible_res: List[str] = match_substring(arg_str, name_list)
+                        if len(possible_res) == 0:  # 没有结果
+                            return [BotSendMsgCommand(self.bot.account, self.format_loc(LOC_BR_ERROR_NOT_FOUND), [port])]
+                        elif len(possible_res) > 1:  # 多个可能的结果
+                            return [BotSendMsgCommand(self.bot.account, self.format_loc(LOC_BR_ERROR_TOO_MUCH_FOUND), [port])]
+                        elif len(possible_res) == 1:
+                            for i, entity in enumerate(init_data.entities):
+                                if entity.name == possible_res[0]:
+                                    target_turn = i + 1
+                                    break
+                    else:  # match_num > 1: 多于一个同名条目
+                        return [BotSendMsgCommand(self.bot.account, self.format_loc(LOC_BR_ERROR_TOO_MUCH_FOUND), [port])]
+
+            # 经过修改后，检查并纠正回合超出轮内回合数的情况
+            if turns_in_round > 0:
+                if target_turn > turns_in_round:
+                    overflow = target_turn - 1
+                    target_round += overflow // turns_in_round
+                    target_turn = (overflow % turns_in_round) + 1
+                elif target_turn < 1:
+                    deficit = 1 - target_turn
+                    round_back = (deficit + turns_in_round - 1) // turns_in_round
+                    target_round = max(1, target_round - round_back)
+                    target_turn = turns_in_round - ((deficit - 1) % turns_in_round)
+
+            init_data.turns_in_round = turns_in_round
+
+            current_entity = init_data.entities[target_turn - 1]
+            display_name = current_entity.name
+            name_updated = False
+            at_code: str = ""
+            if current_entity.owner:
+                display_name = self.bot.get_nickname(current_entity.owner, meta.group_id)
+                if current_entity.name != display_name:
+                    current_entity.name = display_name
+                    name_updated = True
+                at_code = get_cq_at(current_entity.owner)
+
+            if query_only:
+                if (prev_round != target_round) or (prev_turn != target_turn) or (prev_turns_in_round != turns_in_round) or name_updated:
+                    init_data.round = target_round
+                    init_data.turn = target_turn
+                    self.bot.data_manager.set_data(DC_INIT, [meta.group_id], init_data)
+                feedback = self.format_loc(LOC_BR_ROUND, round=str(target_round), turn=str(target_turn), turn_name=display_name)
+                return [BotSendMsgCommand(self.bot.account, feedback, [port])]
+
+            round_changed: bool = (target_round != prev_round)
+            turn_changed: bool = (target_turn != prev_turn)
+
+            init_data.round = target_round
+            init_data.turn = target_turn
             self.bot.data_manager.set_data(DC_INIT, [meta.group_id], init_data)
-            # 更新玩家姓名
-            if init_data.entities[target_turn-1].owner:  
-                init_data.entities[target_turn-1].name = self.bot.get_nickname(init_data.entities[target_turn-1].owner, meta.group_id)
-            feedbacks.append(self.format_loc(LOC_BR_ROUND_SHOW,turn_name=init_data.entities[target_turn-1].name))
+
+            if mode == "round":
+                if round_changed:
+                    feedbacks.append(self.format_loc(LOC_BR_ROUND_MOD, round=str(target_round)))
+                if round_changed or turn_changed:
+                    feedbacks.append(self.format_loc(LOC_BR_ROUND_SHOW, round=str(target_round), turn=str(target_turn), turn_name=display_name))
+                else:
+                    feedbacks.append(self.format_loc(LOC_BR_ROUND, round=str(target_round), turn=str(target_turn), turn_name=display_name))
+            else:  # mode == "turn"
+                if round_changed:
+                    if target_round > prev_round:
+                        feedbacks.append(self.format_loc(LOC_BR_ROUND_NEW, round=str(target_round)))
+                    else:
+                        feedbacks.append(self.format_loc(LOC_BR_ROUND_MOD, round=str(target_round)))
+                if round_changed or turn_changed:
+                    if at_code:
+                        feedbacks.append(self.format_loc(LOC_BR_TURN_NEW_WITH_AT, round=str(target_round), turn=str(target_turn), turn_name=display_name, at=at_code))
+                    else:
+                        feedbacks.append(self.format_loc(LOC_BR_TURN_NEW, round=str(target_round), turn=str(target_turn), turn_name=display_name))
+                else:
+                    feedbacks.append(self.format_loc(LOC_BR_ROUND_SHOW, round=str(target_round), turn=str(target_turn), turn_name=display_name))
         elif mode == "end":
             try:
                 init_data: dict = self.bot.data_manager.get_data(DC_INIT, [meta.group_id])
             except DataManagerError:
                 return [BotSendMsgCommand(self.bot.account, self.format_loc(LOC_BR_NO_INIT), [port])]
+            if not init_data.entities:
+                return [BotSendMsgCommand(self.bot.account, self.format_loc(LOC_BR_NO_INIT), [port])]
             # 不需要再过排序了，现在自动排序的
             # init_data.entities = sorted(init_data.entities, key=lambda x: -x.init)
             round: int = init_data.round
             turn: int = init_data.turn
+            entity_count: int = len(init_data.entities)
+            turns_in_round: int = entity_count if entity_count else 1
+            if turns_in_round > 0:
+                if turn > turns_in_round:
+                    overflow = turn - 1
+                    round += overflow // turns_in_round
+                    turn = (overflow % turns_in_round) + 1
+                elif turn < 1:
+                    deficit = 1 - turn
+                    round_back = (deficit + turns_in_round - 1) // turns_in_round
+                    round = max(1, round - round_back)
+                    turn = turns_in_round - ((deficit - 1) % turns_in_round)
+            init_data.turns_in_round = turns_in_round
             # 更新回合结束者的名字
             if init_data.entities[turn-1].owner:
                 init_data.entities[turn-1].name = self.bot.get_nickname(init_data.entities[turn-1].owner, meta.group_id)
@@ -220,8 +280,8 @@ class BattlerollCommand(UserCommandBase):
             # 回合数+1
             turn += 1
             # 经过修改后，检查是否回合超出轮内回合数
-            if turn > init_data.turns_in_round:
-                turn -= init_data.turns_in_round
+            if turn > turns_in_round:
+                turn -= turns_in_round
                 round += 1
                 feedbacks.append(self.format_loc(LOC_BR_ROUND_NEW,round=str(round),turn=str(turn),turn_name=init_data.entities[turn-1].name))
             # 更新回合开始者的名字
