@@ -18,6 +18,8 @@ from module.roll.default_dice import (
     apply_default_expr,
     extract_default_type_hint,
 )
+from module.roll.karma_manager import get_karma_manager
+from utils.logger import dice_log
 
 LOC_ROLL_RESULT = "roll_result"
 LOC_ROLL_RESULT_REASON = "roll_result_reason"
@@ -248,7 +250,24 @@ class RollDiceCommand(UserCommandBase):
             exp_str = apply_default_expr(exp_str, default_expr)
             default_type_hint = extract_default_type_hint(default_expr)
             exp: RollExpression = parse_roll_exp(exp_str, default_type_hint)
-            res_list: List[RollResult] = [exp.get_result() for _ in range(times)]
+            karma_enabled = False
+            karma_manager = None
+            try:
+                karma_manager = get_karma_manager(self.bot)
+            except Exception as exc:  # noqa: B902
+                dice_log(f"[KarmaDice] 获取管理器失败: {exc}")
+            if karma_manager:
+                user_token = meta.user_id or "_anon_"
+                try:
+                    with karma_manager.activate(meta.group_id, user_token) as active:
+                        karma_enabled = active
+                        res_list: List[RollResult] = [exp.get_result() for _ in range(times)]
+                except Exception as exc:  # noqa: B902
+                    dice_log(f"[KarmaDice] 激活失败，回退普通掷骰: {exc}")
+                    karma_enabled = False
+                    res_list = [exp.get_result() for _ in range(times)]
+            else:
+                res_list = [exp.get_result() for _ in range(times)]
         except RollDiceError as e:
             feedback = e.info
             # 生成机器人回复端口
@@ -383,6 +402,8 @@ class RollDiceCommand(UserCommandBase):
 
         # 记录掷骰结果
         record_roll_data(self.bot, meta, res_list)
+        if karma_enabled:
+            feedback = feedback + "*"
         commands.append(BotSendMsgCommand(self.bot.account, feedback, [port]))
         return commands
 
