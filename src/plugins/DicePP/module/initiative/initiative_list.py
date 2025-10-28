@@ -12,8 +12,7 @@ DC_INIT = "initiative"
 INIT_LIST_SIZE = 30  # 一个先攻列表的容量
 
 
-@custom_data_chunk(identifier=DC_INIT,
-                   include_json_object=True)
+@custom_data_chunk(identifier=DC_INIT, include_json_object=True)
 class _(DataChunkBase):
     def __init__(self):
         super().__init__()
