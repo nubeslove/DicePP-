@@ -122,6 +122,9 @@ UPLOAD_VERSION = 105
 CFG_LOG_UPLOAD_ENABLE = "log_upload_enable"
 CFG_LOG_UPLOAD_ENDPOINT = "log_upload_endpoint"
 CFG_LOG_UPLOAD_TOKEN = "log_upload_token"
+# 限制单个日志在内存中保留的最大记录条数（可通过配置覆盖）。
+CFG_LOG_MAX_RECORDS = "log_max_records"
+LOG_MAX_RECORDS_DEFAULT = 5000
 
 
 def _pick_color(color_map: Dict[str, str], user_id: str) -> str:
@@ -430,6 +433,32 @@ def _append_record_to_entry(log_entry: Dict[str, Any], record: Dict[str, Any], *
     log_entry[LOG_KEY_UPDATED_AT] = record.get("time", _now_str())
 
 
+def _trim_records_if_needed(bot: Bot, entry: Dict[str, Any]) -> None:
+    """根据配置裁剪过多的历史记录，避免内存无限增长。
+    - 读取配置 CFG_LOG_MAX_RECORDS（默认 5000）。
+    - 当超限时，删除最早的一批（回落到阈值的 80%）以减少频繁切片的成本。
+    """
+    try:
+        cfg_val = bot.cfg_helper.get_config(CFG_LOG_MAX_RECORDS)[0]
+        limit = int(str(cfg_val).strip())
+    except Exception:
+        limit = LOG_MAX_RECORDS_DEFAULT
+    if limit is None:
+        return
+    if limit <= 0:
+        # -1 或 0 代表不限制（不建议在长期运行环境使用）
+        return
+    records = entry.get(LOG_KEY_RECORDS, [])
+    cur_len = len(records)
+    if cur_len > limit:
+        # 回落到 80% 的水位，减少切片频率
+        target = max(int(limit * 0.8), 1)
+        drop_n = cur_len - target
+        if drop_n > 0:
+            del records[:drop_n]
+            entry[LOG_KEY_RECORDS] = records
+
+
 def _should_filter(filters: Dict[str, bool], content: str, *, is_bot: bool) -> bool:
     text = (content or "").strip()
     if filters.get(FILTER_OUTSIDE) and (
@@ -718,6 +747,8 @@ def record_incoming_message(bot: Bot,
             entry[LOG_KEY_LAST_WARN] = now_time
 
     _append_record_to_entry(entry, record, source_is_bot=is_bot)
+    # 裁剪过多的历史记录，防止内存无限增长
+    _trim_records_if_needed(bot, entry)
     payload[LOG_GROUP_LOGS][current_id] = entry
     _save_group_payload(bot, group_id, payload)
     return commands
@@ -761,6 +792,8 @@ class LogCommand(UserCommandBase):
         self.bot.cfg_helper.register_config(CFG_LOG_UPLOAD_ENABLE, "1", "是否在 .log end 时上传日志云端 (1/0)")
         self.bot.cfg_helper.register_config(CFG_LOG_UPLOAD_ENDPOINT, UPLOAD_ENDPOINT_DEFAULT, "日志云端上传接口地址")
         self.bot.cfg_helper.register_config(CFG_LOG_UPLOAD_TOKEN, "", "日志云端上传授权 Token，可留空")
+        # 允许配置内存中保留的最大日志记录条数，超出自动丢弃最早的记录以避免 OOM
+        self.bot.cfg_helper.register_config(CFG_LOG_MAX_RECORDS, str(LOG_MAX_RECORDS_DEFAULT), "单个日志在内存中保留的最大消息条数，超过将自动丢弃最早的记录；-1 为不限制（不建议长期开启）")
 
     def can_process_msg(self, msg_str: str, meta: MessageMetaData) -> Tuple[bool, bool, Any]:
         if not msg_str.startswith(".log"):

@@ -192,15 +192,21 @@ class DataManager:
         """
         if not path:
             if force_delete:
-                data_chunk.root = {}
-                return cur_node
+                # 清空所有数据块
+                for _name, _chunk in self.__dataChunks.items():
+                    if issubclass(type(_chunk), DataChunkBase):
+                        _chunk.root = {}
+                return None
             else:
                 raise DataManagerError(f"[DeleteData] 尝试非安全地删除所有数据!")
 
-        for target in self.__dataChunks:
-            data_chunk = self.__dataChunks[target]
+        for target, data_chunk in self.__dataChunks.items():
             if issubclass(type(data_chunk), DataChunkBase):
-                self.delete_data(target,path)
+                try:
+                    self.delete_data(target, path, ignore_miss=ignore_miss)
+                except DataManagerError:
+                    if not ignore_miss:
+                        raise
 
     def get_keys(self, target: str, path: List[str]):
         """类似get_data, 但是不会返回数据的拷贝, 而是返回当前path的所有key, 当前path不存在或不是dict则抛出异常"""
