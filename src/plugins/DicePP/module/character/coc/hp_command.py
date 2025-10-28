@@ -25,7 +25,7 @@ LOC_HP_MOD = "hp_mod"
 LOC_HP_MOD_ERR = "hp_mod_error"
 LOC_HP_DEL = "hp_delete"
 
-# 增加自定义DataChunk, 只存放NPC生命值信息, 玩家生命值信息存储在 DC_CHAR_DND
+# 增加自定义DataChunk, 只存放NPC生命值信息, 玩家生命值信息存储在 DC_CHAR_DND【占位】
 DC_CHAR_DND = "character_dnd"
 DC_CHAR_HP = "char_hp"
 
