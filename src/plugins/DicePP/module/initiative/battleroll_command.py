@@ -117,27 +117,31 @@ class BattlerollCommand(UserCommandBase):
             except DataManagerError:
                 feedback = self.format_loc(LOC_BR_NO_INIT)
                 return [BotSendMsgCommand(self.bot.account, feedback, [port])]
-                # Normalize entities to ensure InitEntity objects (defensive)
-                normalized = []
-                for ent in getattr(init_data, 'entities', []):
-                    if isinstance(ent, InitEntity):
-                        normalized.append(ent)
-                    elif isinstance(ent, dict):
-                        e = InitEntity()
-                        try:
-                            e.deserialize(json.dumps(ent))
-                        except Exception:
-                            for k, v in ent.items():
-                                try:
-                                    setattr(e, k, v)
-                                except Exception:
-                                    pass
-                        normalized.append(e)
-                    else:
-                        e = InitEntity()
+
+            # Defensive normalization: ensure entities are InitEntity instances
+            normalized = []
+            for ent in getattr(init_data, 'entities', []):
+                if isinstance(ent, InitEntity):
+                    normalized.append(ent)
+                elif isinstance(ent, dict):
+                    e = InitEntity()
+                    try:
+                        e.deserialize(json.dumps(ent))
+                    except Exception:
+                        for k, v in ent.items():
+                            try:
+                                setattr(e, k, v)
+                            except Exception:
+                                pass
+                    normalized.append(e)
+                else:
+                    e = InitEntity()
+                    try:
                         e.name = str(ent)
-                        normalized.append(e)
-                init_data.entities = normalized
+                    except Exception:
+                        e.name = ""
+                    normalized.append(e)
+            init_data.entities = normalized
             if not init_data.entities:
                 return [BotSendMsgCommand(self.bot.account, self.format_loc(LOC_BR_NO_INIT), [port])]
 

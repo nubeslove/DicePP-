@@ -1357,20 +1357,34 @@ class LogCommand(UserCommandBase):
     def _generate_file(self, group_id: str, log_entry: Dict[str, Any], filters: Dict[str, bool], *, log_id: Optional[str] = None) -> Tuple[str, str, List[Tuple[str, str]]]:
         # 优先从 DB 读取记录，避免占用内存
         records: List[Dict[str, Any]]
+        # Prefer DB records but merge with any legacy in-memory records so that
+        # old-format logs (stored in payload) and new DB-backed records are
+        # concatenated for export.
+        records_payload = list(log_entry.get(LOG_KEY_RECORDS, []))
+        records_db = []
         if get_connection and fetch_records:
             try:
                 conn = get_connection()
                 try:
-                    # 使用传入的 log_id，否则通过 payload 反查
                     use_log_id = log_id or self._get_log_id_by_entry(group_id, log_entry)
-                    records = fetch_records(conn, use_log_id)
+                    records_db = fetch_records(conn, use_log_id)
                 finally:
                     conn.close()
             except Exception as e:
                 dice_log(f"[LogDB] fetch_records error: {e}")
-                records = list(log_entry.get(LOG_KEY_RECORDS, []))
+                records_db = []
+        # Merge DB-backed and payload records, sort by timestamp to preserve order
+        if records_db and records_payload:
+            try:
+                combined = records_db + records_payload
+                combined.sort(key=lambda r: str_to_datetime(r.get('time', _now_str())) or _now_str())
+                records = combined
+            except Exception:
+                records = records_db + records_payload
+        elif records_db:
+            records = records_db
         else:
-            records = list(log_entry.get(LOG_KEY_RECORDS, []))
+            records = records_payload
         color_map = dict(log_entry.get(LOG_KEY_COLOR_MAP, {}))
         log_name = log_entry.get(LOG_KEY_NAME, "log")
         start_time = log_entry.get(LOG_KEY_CREATED_AT, _now_str())
@@ -1506,19 +1520,31 @@ class LogCommand(UserCommandBase):
 
     def _build_upload_payload(self, log_entry: Dict[str, Any], log_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
         # 尝试从 DB 获取记录
+        # Merge DB and payload records for upload payload as well
+        records_payload = list(log_entry.get(LOG_KEY_RECORDS, []))
+        records_db = []
         if get_connection and fetch_records:
             try:
                 conn = get_connection()
                 try:
-                    use_log_id = log_id or self._get_log_id_by_entry("", log_entry)
-                    records = fetch_records(conn, use_log_id)
+                    use_log_id = log_id or self._get_log_id_by_entry(group_id, log_entry)
+                    records_db = fetch_records(conn, use_log_id)
                 finally:
                     conn.close()
             except Exception as e:
                 dice_log(f"[LogDB] fetch_records for upload error: {e}")
-                records = log_entry.get(LOG_KEY_RECORDS, [])
+                records_db = []
+        if records_db and records_payload:
+            try:
+                combined = records_db + records_payload
+                combined.sort(key=lambda r: str_to_datetime(r.get('time', _now_str())) or _now_str())
+                records = combined
+            except Exception:
+                records = records_db + records_payload
+        elif records_db:
+            records = records_db
         else:
-            records = log_entry.get(LOG_KEY_RECORDS, [])
+            records = records_payload
         if not records:
             return None
         items: List[Dict[str, Any]] = []

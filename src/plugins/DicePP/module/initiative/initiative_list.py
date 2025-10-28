@@ -44,10 +44,36 @@ class InitList(JsonObject):
             if key in self.__dict__:
                 value_init = self.__getattribute__(key)
                 if key == "entities":
+                    # value may be a list of serialized InitEntity strings, or
+                    # legacy dicts/strings. Handle all cases defensively.
                     self.entities = []
-                    for entity_str in value:
+                    for entity_item in value:
                         entity = InitEntity()
-                        entity.deserialize(entity_str)
+                        try:
+                            # If stored as a JSON string representing the object
+                            if isinstance(entity_item, str):
+                                # try to parse as serialized InitEntity
+                                try:
+                                    entity.deserialize(entity_item)
+                                except Exception:
+                                    # fallback: treat as plain name
+                                    entity.name = entity_item
+                            elif isinstance(entity_item, dict):
+                                # older format: dict of attributes
+                                for k, v in entity_item.items():
+                                    try:
+                                        setattr(entity, k, v)
+                                    except Exception:
+                                        pass
+                            else:
+                                # other types: coerce to string name
+                                entity.name = str(entity_item)
+                        except Exception:
+                            # ensure we still append a usable entity
+                            try:
+                                entity.name = str(entity_item)
+                            except Exception:
+                                entity.name = ""
                         self.entities.append(entity)
                 elif isinstance(value_init, JsonObject):
                     value_init.deserialize(value)

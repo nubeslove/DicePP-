@@ -519,6 +519,35 @@ class InitiativeCommand(UserCommandBase):
         # 获取先攻列表
         init_data: InitList = self.bot.data_manager.get_data(DC_INIT, [group_id], default_gen=InitList, get_ref=True)
 
+        # Defensive normalization: some older or malformed saved data may contain
+        # strings or dicts in init_data.entities. Normalize them to InitEntity
+        # instances so callers can safely access .name/.owner/.init without
+        # AttributeError.
+        normalized = []
+        for ent in getattr(init_data, 'entities', []):
+            if isinstance(ent, InitEntity):
+                normalized.append(ent)
+            elif isinstance(ent, dict):
+                e = InitEntity()
+                try:
+                    # try to reuse existing deserialize if available
+                    e.deserialize(json.dumps(ent))
+                except Exception:
+                    for k, v in ent.items():
+                        try:
+                            setattr(e, k, v)
+                        except Exception:
+                            pass
+                normalized.append(e)
+            else:
+                e = InitEntity()
+                try:
+                    e.name = str(ent)
+                except Exception:
+                    e.name = ""
+                normalized.append(e)
+        init_data.entities = normalized
+
         # 针对 .ri 3#地精 这种用法简化一下输出(会产生3次一样的roll_res)
         final_result_dict: Dict[str, Tuple[List[str], int]] = {}
         for name, roll_res in result_dict.items():
