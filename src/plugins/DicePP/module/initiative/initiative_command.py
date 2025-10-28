@@ -1,5 +1,7 @@
 from typing import List, Tuple, Dict, Any
 
+import json
+
 from core.bot import Bot
 from core.data import DataManagerError
 from core.command.const import *
@@ -284,9 +286,32 @@ class InitiativeCommand(UserCommandBase):
         except DataManagerError:
             feedback = self.format_loc(LOC_INIT_INFO_NOT_EXIST)
             return [BotSendMsgCommand(self.bot.account, feedback, [port])]
+        # Normalize entities to ensure InitEntity objects (defensive for older or malformed data)
+        normalized = []
+        for ent in getattr(init_data, 'entities', []):
+            if isinstance(ent, InitEntity):
+                normalized.append(ent)
+            elif isinstance(ent, dict):
+                e = InitEntity()
+                try:
+                    e.deserialize(json.dumps(ent))
+                except Exception:
+                    # fallback: shallow attribute copy
+                    for k, v in ent.items():
+                        try:
+                            setattr(e, k, v)
+                        except Exception:
+                            pass
+                normalized.append(e)
+            else:
+                e = InitEntity()
+                e.name = str(ent)
+                normalized.append(e)
+        init_data.entities = normalized
+
         # 更新玩家姓名
         for entity in init_data.entities:
-            if entity.owner:  
+            if entity.owner:
                 entity.name = self.bot.get_nickname(entity.owner, meta.group_id)
         entities_name_list: List[str] = [entity.name for entity in init_data.entities]
 
