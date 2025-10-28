@@ -22,7 +22,7 @@ from core.communication import RequestData, FriendRequestData, JoinGroupRequestD
 from core.command import BotCommandBase, BotSendMsgCommand, BotDelayCommand, BotLeaveGroupCommand, BotSendForwardMsgCommand, BotSendFileCommand
 from utils.logger import dice_log
 
-from module.common.log_command import append_log_record  # type: ignore
+from module.common.log_command import append_log_record, delete_log_record_by_message_id  # type: ignore
 
 from adapter.client_proxy import ClientProxy
 
@@ -347,24 +347,9 @@ else:
 
 # ================= Recall Sync Support ==================
 def _remove_log_record(bot_obj, group_id: str, message_id: str):
-    """在日志记录中根据 message_id 移除对应项。
-    仅处理当前 active 的记录，不主动开启。若 message_id 不存在则忽略。
-    结构兼容性：旧记录没有 message_id 字段，不做处理。
-    """
+    """根据消息撤回删除当前活动日志中对应的记录（SQLite）。"""
     try:
-        is_active = bot_obj.data_manager.get_data('log_session', [group_id, 'active'], False)
-        if not is_active:
-            return
-        records = bot_obj.data_manager.get_data('log_session', [group_id, 'records'], [])
-        new_records = []
-        removed = 0
-        for rec in records:
-            if rec.get('message_id') == message_id:
-                removed += 1
-                continue
-            new_records.append(rec)
-        if removed:
-            bot_obj.data_manager.set_data('log_session', [group_id, 'records'], new_records)
+        delete_log_record_by_message_id(bot_obj, group_id, str(message_id))
     except Exception as e:
         try:
             dice_log(f"[Recall] remove fail: {e}")

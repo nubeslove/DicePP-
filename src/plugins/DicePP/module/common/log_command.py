@@ -21,6 +21,29 @@ from core.communication import GroupMessagePort, MessageMetaData
 from utils.time import get_current_date_str, str_to_datetime
 from utils.logger import dice_log
 
+# 日志数据库后端（将记录存入 SQLite，导出从 DB 读取）
+try:
+    from .log_db import (
+        get_connection,
+        upsert_log,
+        insert_record,
+        fetch_records,
+        delete_log,
+        delete_records_by_message_id,
+        set_recording,
+        update_log_upload,
+    )
+except Exception:
+    # 兼容导入失败场景，保持旧逻辑可运行（但不会用到 DB）
+    get_connection = None  # type: ignore
+    upsert_log = None  # type: ignore
+    insert_record = None  # type: ignore
+    fetch_records = None  # type: ignore
+    delete_log = None  # type: ignore
+    delete_records_by_message_id = None  # type: ignore
+    set_recording = None  # type: ignore
+    update_log_upload = None  # type: ignore
+
 # 旧版本使用的常量，保留以兼容外部引用或进行数据迁移
 DC_LOG_SESSION = "log_session"
 DCK_ACTIVE = "active"
@@ -433,6 +456,76 @@ def _append_record_to_entry(log_entry: Dict[str, Any], record: Dict[str, Any], *
     log_entry[LOG_KEY_UPDATED_AT] = record.get("time", _now_str())
 
 
+def _append_record_to_db(group_id: str, log_id: str, log_entry: Dict[str, Any], record: Dict[str, Any], *, source_is_bot: bool) -> None:
+    """将记录写入数据库，同时在内存里仅维护必要的统计与配色，避免内存暴涨。"""
+    # 1) 确保日志元数据存在（旧日志可能在 DB 中尚未建档）
+    if get_connection and upsert_log:
+        try:
+            conn = get_connection()
+            try:
+                # 取 filters 快照，便于后续导出/查看
+                filters = log_entry.get(LOG_KEY_UPLOAD)  # dummy to satisfy type checker
+            except Exception:
+                filters = None
+            finally:
+                # 重置，真实 filters 从调用方 payload 中难以直接传入，这里尽量填充已有字段
+                pass
+            try:
+                upsert_log(conn, {
+                    "id": log_id,
+                    "group_id": group_id,
+                    "name": log_entry.get(LOG_KEY_NAME, log_id),
+                    "created_at": log_entry.get(LOG_KEY_CREATED_AT, record.get("time", _now_str())),
+                    "updated_at": record.get("time", _now_str()),
+                    "recording": True if log_entry.get(LOG_KEY_RECORDING) else False,
+                    "record_begin_at": log_entry.get(LOG_KEY_RECORD_BEGIN_AT, record.get("time", _now_str())),
+                    "last_warn": log_entry.get(LOG_KEY_LAST_WARN, log_entry.get(LOG_KEY_RECORD_BEGIN_AT, record.get("time", _now_str()))),
+                    "filter_outside": 0,
+                    "filter_command": 0,
+                    "filter_bot": 0,
+                    "filter_media": 0,
+                    "filter_forum_code": 0,
+                    "upload_time": log_entry.get(LOG_KEY_UPLOAD, {}).get(LOG_KEY_UPLOAD_TIME),
+                    "upload_file": log_entry.get(LOG_KEY_UPLOAD, {}).get(LOG_KEY_UPLOAD_FILE),
+                    "upload_note": log_entry.get(LOG_KEY_UPLOAD, {}).get(LOG_KEY_UPLOAD_NOTE),
+                    "url": log_entry.get(LOG_KEY_UPLOAD, {}).get("url"),
+                })
+                conn.commit()
+            finally:
+                conn.close()
+        except Exception as e:
+            dice_log(f"[LogDB] upsert before insert error: {e}")
+
+    # 2) 写入记录
+    if get_connection and insert_record:
+        try:
+            conn = get_connection()
+            try:
+                insert_record(
+                    conn,
+                    log_id,
+                    time=record.get("time", _now_str()),
+                    user_id=str(record.get("user_id") or ""),
+                    nickname=record.get("nickname") or str(record.get("user_id") or ""),
+                    content=record.get("content", ""),
+                    source=record.get(LOG_KEY_SOURCE, "user"),
+                    message_id=record.get("message_id"),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+        except Exception as e:
+            dice_log(f"[LogDB] insert_record error: {e}")
+
+    # 3) 内存：只维护统计与颜色映射
+    color_map = log_entry.setdefault(LOG_KEY_COLOR_MAP, {})
+    _pick_color(color_map, record.get("user_id", ""))
+    stats = log_entry.setdefault(LOG_KEY_STATS, _empty_stats())
+    stats.setdefault("dice_faces", {})
+    _update_stats_with_record(stats, record, source_is_bot=source_is_bot)
+    log_entry[LOG_KEY_UPDATED_AT] = record.get("time", _now_str())
+
+
 def _trim_records_if_needed(bot: Bot, entry: Dict[str, Any]) -> None:
     """根据配置裁剪过多的历史记录，避免内存无限增长。
     - 读取配置 CFG_LOG_MAX_RECORDS（默认 5000）。
@@ -746,8 +839,8 @@ def record_incoming_message(bot: Bot,
             ))
             entry[LOG_KEY_LAST_WARN] = now_time
 
-    _append_record_to_entry(entry, record, source_is_bot=is_bot)
-    # 裁剪过多的历史记录，防止内存无限增长
+    _append_record_to_db(group_id, current_id, entry, record, source_is_bot=is_bot)
+    # 不再堆积内存 records，仅保留统计；裁剪留作安全网（不会影响）
     _trim_records_if_needed(bot, entry)
     payload[LOG_GROUP_LOGS][current_id] = entry
     _save_group_payload(bot, group_id, payload)
@@ -882,6 +975,36 @@ class LogCommand(UserCommandBase):
         }
         payload[LOG_GROUP_NAME_INDEX][name.lower()] = log_id
         payload[LOG_GROUP_CURRENT] = log_id
+        # 同步到 DB（元数据）
+        if get_connection and upsert_log:
+            try:
+                conn = get_connection()
+                try:
+                    filters = payload.get(LOG_GROUP_FILTERS, DEFAULT_FILTERS)
+                    upsert_log(conn, {
+                        "id": log_id,
+                        "group_id": group_id,
+                        "name": name,
+                        "created_at": now,
+                        "updated_at": now,
+                        "recording": True,
+                        "record_begin_at": now,
+                        "last_warn": now,
+                        "filter_outside": int(bool(filters.get(FILTER_OUTSIDE))),
+                        "filter_command": int(bool(filters.get(FILTER_COMMAND))),
+                        "filter_bot": int(bool(filters.get(FILTER_BOT))),
+                        "filter_media": int(bool(filters.get(FILTER_MEDIA))),
+                        "filter_forum_code": int(bool(filters.get(FILTER_FORUM_CODE))),
+                        "upload_time": None,
+                        "upload_file": None,
+                        "upload_note": None,
+                        "url": None,
+                    })
+                    conn.commit()
+                finally:
+                    conn.close()
+            except Exception as e:
+                dice_log(f"[LogDB] upsert new log error: {e}")
         return self.messages.new_started.format(name=name)
 
     def _handle_on(self, payload: Dict[str, Any], group_id: str, name: str) -> str:
@@ -916,6 +1039,36 @@ class LogCommand(UserCommandBase):
         entry[LOG_KEY_UPDATED_AT] = now
         logs[target_id] = entry
         payload[LOG_GROUP_LOGS] = logs
+        # DB 同步
+        if get_connection and upsert_log:
+            try:
+                conn = get_connection()
+                try:
+                    filters = payload.get(LOG_GROUP_FILTERS, DEFAULT_FILTERS)
+                    upsert_log(conn, {
+                        "id": target_id,
+                        "group_id": group_id,
+                        "name": entry.get(LOG_KEY_NAME, target_id),
+                        "created_at": entry.get(LOG_KEY_CREATED_AT, now),
+                        "updated_at": now,
+                        "recording": True,
+                        "record_begin_at": entry.get(LOG_KEY_RECORD_BEGIN_AT, now),
+                        "last_warn": entry.get(LOG_KEY_LAST_WARN, now),
+                        "filter_outside": int(bool(filters.get(FILTER_OUTSIDE))),
+                        "filter_command": int(bool(filters.get(FILTER_COMMAND))),
+                        "filter_bot": int(bool(filters.get(FILTER_BOT))),
+                        "filter_media": int(bool(filters.get(FILTER_MEDIA))),
+                        "filter_forum_code": int(bool(filters.get(FILTER_FORUM_CODE))),
+                        "upload_time": entry.get(LOG_KEY_UPLOAD, {}).get(LOG_KEY_UPLOAD_TIME),
+                        "upload_file": entry.get(LOG_KEY_UPLOAD, {}).get(LOG_KEY_UPLOAD_FILE),
+                        "upload_note": entry.get(LOG_KEY_UPLOAD, {}).get(LOG_KEY_UPLOAD_NOTE),
+                        "url": entry.get(LOG_KEY_UPLOAD, {}).get("url"),
+                    })
+                    conn.commit()
+                finally:
+                    conn.close()
+            except Exception as e:
+                dice_log(f"[LogDB] upsert on error: {e}")
         return self.messages.resume.format(name=entry.get(LOG_KEY_NAME, target_id))
 
     def _handle_off(self, payload: Dict[str, Any], group_id: str) -> str:
@@ -931,6 +1084,36 @@ class LogCommand(UserCommandBase):
         entry[LOG_KEY_RECORDING] = False
         entry[LOG_KEY_UPDATED_AT] = _now_str()
         payload[LOG_GROUP_LOGS][current_id] = entry
+        # DB 同步
+        if get_connection and upsert_log:
+            try:
+                conn = get_connection()
+                try:
+                    filters = payload.get(LOG_GROUP_FILTERS, DEFAULT_FILTERS)
+                    upsert_log(conn, {
+                        "id": current_id,
+                        "group_id": group_id,
+                        "name": entry.get(LOG_KEY_NAME, current_id),
+                        "created_at": entry.get(LOG_KEY_CREATED_AT, _now_str()),
+                        "updated_at": entry.get(LOG_KEY_UPDATED_AT),
+                        "recording": False,
+                        "record_begin_at": entry.get(LOG_KEY_RECORD_BEGIN_AT),
+                        "last_warn": entry.get(LOG_KEY_LAST_WARN),
+                        "filter_outside": int(bool(filters.get(FILTER_OUTSIDE))),
+                        "filter_command": int(bool(filters.get(FILTER_COMMAND))),
+                        "filter_bot": int(bool(filters.get(FILTER_BOT))),
+                        "filter_media": int(bool(filters.get(FILTER_MEDIA))),
+                        "filter_forum_code": int(bool(filters.get(FILTER_FORUM_CODE))),
+                        "upload_time": entry.get(LOG_KEY_UPLOAD, {}).get(LOG_KEY_UPLOAD_TIME),
+                        "upload_file": entry.get(LOG_KEY_UPLOAD, {}).get(LOG_KEY_UPLOAD_FILE),
+                        "upload_note": entry.get(LOG_KEY_UPLOAD, {}).get(LOG_KEY_UPLOAD_NOTE),
+                        "url": entry.get(LOG_KEY_UPLOAD, {}).get("url"),
+                    })
+                    conn.commit()
+                finally:
+                    conn.close()
+            except Exception as e:
+                dice_log(f"[LogDB] upsert off error: {e}")
         return self.messages.paused.format(name=entry.get(LOG_KEY_NAME, current_id))
 
     def _handle_halt(self, payload: Dict[str, Any], group_id: str) -> str:
@@ -945,6 +1128,36 @@ class LogCommand(UserCommandBase):
         entry[LOG_KEY_UPDATED_AT] = _now_str()
         payload[LOG_GROUP_LOGS][current_id] = entry
         payload[LOG_GROUP_CURRENT] = ""
+        # DB 同步
+        if get_connection and upsert_log:
+            try:
+                conn = get_connection()
+                try:
+                    filters = payload.get(LOG_GROUP_FILTERS, DEFAULT_FILTERS)
+                    upsert_log(conn, {
+                        "id": current_id,
+                        "group_id": group_id,
+                        "name": entry.get(LOG_KEY_NAME, current_id),
+                        "created_at": entry.get(LOG_KEY_CREATED_AT, _now_str()),
+                        "updated_at": entry.get(LOG_KEY_UPDATED_AT),
+                        "recording": False,
+                        "record_begin_at": entry.get(LOG_KEY_RECORD_BEGIN_AT),
+                        "last_warn": entry.get(LOG_KEY_LAST_WARN),
+                        "filter_outside": int(bool(filters.get(FILTER_OUTSIDE))),
+                        "filter_command": int(bool(filters.get(FILTER_COMMAND))),
+                        "filter_bot": int(bool(filters.get(FILTER_BOT))),
+                        "filter_media": int(bool(filters.get(FILTER_MEDIA))),
+                        "filter_forum_code": int(bool(filters.get(FILTER_FORUM_CODE))),
+                        "upload_time": entry.get(LOG_KEY_UPLOAD, {}).get(LOG_KEY_UPLOAD_TIME),
+                        "upload_file": entry.get(LOG_KEY_UPLOAD, {}).get(LOG_KEY_UPLOAD_FILE),
+                        "upload_note": entry.get(LOG_KEY_UPLOAD, {}).get(LOG_KEY_UPLOAD_NOTE),
+                        "url": entry.get(LOG_KEY_UPLOAD, {}).get("url"),
+                    })
+                    conn.commit()
+                finally:
+                    conn.close()
+            except Exception as e:
+                dice_log(f"[LogDB] upsert halt error: {e}")
         return self.messages.halted.format(name=entry.get(LOG_KEY_NAME, current_id))
 
     def _handle_end(self, payload: Dict[str, Any], group_id: str) -> List[BotCommandBase]:
@@ -963,9 +1176,9 @@ class LogCommand(UserCommandBase):
         payload[LOG_GROUP_LOGS][current_id] = entry
 
         filters = _ensure_filters(payload)
-        file_main_path, display_name, extra_files = self._generate_file(group_id, entry, filters)
+        file_main_path, display_name, extra_files = self._generate_file(group_id, entry, filters, log_id=current_id)
         count = entry.get(LOG_KEY_STATS, {}).get("messages", len(entry.get(LOG_KEY_RECORDS, [])))
-        upload_feedback = self._try_upload_log(group_id, entry)
+        upload_feedback = self._try_upload_log(group_id, entry, log_id=current_id)
         upload_note = "上传至群文件"
         upload_url = None
         if upload_feedback:
@@ -979,6 +1192,22 @@ class LogCommand(UserCommandBase):
         if upload_url:
             entry[LOG_KEY_UPLOAD]["url"] = upload_url
         payload[LOG_GROUP_LOGS][current_id] = entry
+        # DB 更新上传信息
+        if get_connection and update_log_upload:
+            try:
+                conn = get_connection()
+                try:
+                    update_log_upload(conn, current_id, {
+                        "time": entry[LOG_KEY_UPLOAD].get(LOG_KEY_UPLOAD_TIME),
+                        "file": entry[LOG_KEY_UPLOAD].get(LOG_KEY_UPLOAD_FILE),
+                        "note": entry[LOG_KEY_UPLOAD].get(LOG_KEY_UPLOAD_NOTE),
+                        "url": entry[LOG_KEY_UPLOAD].get("url"),
+                    })
+                    conn.commit()
+                finally:
+                    conn.close()
+            except Exception as e:
+                dice_log(f"[LogDB] update upload error: {e}")
 
         feedback_lines = [self.messages.end_summary.format(name=entry.get(LOG_KEY_NAME, current_id), count=count)]
         if upload_feedback:
@@ -1021,6 +1250,17 @@ class LogCommand(UserCommandBase):
         payload[LOG_GROUP_NAME_INDEX] = {
             k: v for k, v in payload.get(LOG_GROUP_NAME_INDEX, {}).items() if v != log_id
         }
+        # DB 删除（级联删除记录）
+        if get_connection and delete_log:
+            try:
+                conn = get_connection()
+                try:
+                    delete_log(conn, log_id)
+                    conn.commit()
+                finally:
+                    conn.close()
+            except Exception as e:
+                dice_log(f"[LogDB] delete log error: {e}")
         return self.messages.deleted.format(name=entry.get(LOG_KEY_NAME, name) if entry else name)
 
     def _handle_get(self, payload: Dict[str, Any], group_id: str, name: str) -> str:
@@ -1036,7 +1276,7 @@ class LogCommand(UserCommandBase):
         should_retry = not upload or not upload.get("url")
         retry_feedback: Optional[Dict[str, Any]] = None
         if should_retry:
-            retry_feedback = self._try_upload_log(group_id, entry)
+            retry_feedback = self._try_upload_log(group_id, entry, log_id=log_id)
             if retry_feedback:
                 upload_file_name = upload.get(LOG_KEY_UPLOAD_FILE) or f"{entry.get(LOG_KEY_NAME, name)}"
                 note = retry_feedback.get("message", "")
@@ -1114,8 +1354,23 @@ class LogCommand(UserCommandBase):
         state = "ON" if filters[key] else "OFF"
         return self.bot.loc_helper.format_loc_text(LOC_LOG_SET_TOGGLED, item=param, state=state)
 
-    def _generate_file(self, group_id: str, log_entry: Dict[str, Any], filters: Dict[str, bool]) -> Tuple[str, str, List[Tuple[str, str]]]:
-        records = list(log_entry.get(LOG_KEY_RECORDS, []))
+    def _generate_file(self, group_id: str, log_entry: Dict[str, Any], filters: Dict[str, bool], *, log_id: Optional[str] = None) -> Tuple[str, str, List[Tuple[str, str]]]:
+        # 优先从 DB 读取记录，避免占用内存
+        records: List[Dict[str, Any]]
+        if get_connection and fetch_records:
+            try:
+                conn = get_connection()
+                try:
+                    # 使用传入的 log_id，否则通过 payload 反查
+                    use_log_id = log_id or self._get_log_id_by_entry(group_id, log_entry)
+                    records = fetch_records(conn, use_log_id)
+                finally:
+                    conn.close()
+            except Exception as e:
+                dice_log(f"[LogDB] fetch_records error: {e}")
+                records = list(log_entry.get(LOG_KEY_RECORDS, []))
+        else:
+            records = list(log_entry.get(LOG_KEY_RECORDS, []))
         color_map = dict(log_entry.get(LOG_KEY_COLOR_MAP, {}))
         log_name = log_entry.get(LOG_KEY_NAME, "log")
         start_time = log_entry.get(LOG_KEY_CREATED_AT, _now_str())
@@ -1249,8 +1504,21 @@ class LogCommand(UserCommandBase):
             "token": token.strip(),
         }
 
-    def _build_upload_payload(self, log_entry: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        records = log_entry.get(LOG_KEY_RECORDS, [])
+    def _build_upload_payload(self, log_entry: Dict[str, Any], log_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        # 尝试从 DB 获取记录
+        if get_connection and fetch_records:
+            try:
+                conn = get_connection()
+                try:
+                    use_log_id = log_id or self._get_log_id_by_entry("", log_entry)
+                    records = fetch_records(conn, use_log_id)
+                finally:
+                    conn.close()
+            except Exception as e:
+                dice_log(f"[LogDB] fetch_records for upload error: {e}")
+                records = log_entry.get(LOG_KEY_RECORDS, [])
+        else:
+            records = log_entry.get(LOG_KEY_RECORDS, [])
         if not records:
             return None
         items: List[Dict[str, Any]] = []
@@ -1298,13 +1566,15 @@ class LogCommand(UserCommandBase):
             "name": log_entry.get(LOG_KEY_NAME, "日志"),
         }
 
-    def _try_upload_log(self, group_id: str, log_entry: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    def _try_upload_log(self, group_id: str, log_entry: Dict[str, Any], *, log_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
         settings = self._get_upload_settings()
         if not settings.get("enabled"):
             return None
         if requests is None:
             return {"success": False, "message": "requests 模块不可用，已跳过云端上传"}
-        payload_data = self._build_upload_payload(log_entry)
+        # 获取当前日志 ID 以便从 DB 读取
+        use_log_id = log_id or self._get_log_id_by_entry(group_id, log_entry)
+        payload_data = self._build_upload_payload(log_entry, log_id=use_log_id)
         if not payload_data:
             return {"success": False, "message": "日志内容为空，已跳过云端上传"}
         files = {
@@ -1357,6 +1627,40 @@ class LogCommand(UserCommandBase):
 
     def get_description(self) -> str:
         return ".log 日志管理"
+
+    # 辅助：通过 log_entry 反查其在 payload 中的 log_id（调用点都在命令处理期，可安全扫描一次）
+    def _get_log_id_by_entry(self, group_id: str, entry: Dict[str, Any]) -> str:
+        try:
+            payload = _load_group_payload(self.bot, group_id) if group_id else None
+            logs = payload.get(LOG_GROUP_LOGS, {}) if isinstance(payload, dict) else {}
+            for lid, ent in logs.items():
+                if ent is entry:
+                    return lid
+        except Exception:
+            pass
+        # 兜底：无法定位则退回名称
+        return entry.get(LOG_KEY_NAME, "unknown")
+
+
+# 提供给适配器：按消息撤回删除对应 DB 记录
+def delete_log_record_by_message_id(bot: Bot, group_id: str, message_id: str) -> None:
+    try:
+        payload = _load_group_payload(bot, group_id)
+        current_id = payload.get(LOG_GROUP_CURRENT, "")
+        if not current_id:
+            return
+        if get_connection and delete_records_by_message_id:
+            conn = get_connection()
+            try:
+                delete_records_by_message_id(conn, current_id, str(message_id))
+                conn.commit()
+            finally:
+                conn.close()
+    except Exception as e:
+        try:
+            dice_log(f"[LogDB] delete by message_id error: {e}")
+        except Exception:
+            pass
 
 
 @custom_user_command(readable_name="跑团日志记录器", priority=DPP_COMMAND_PRIORITY_USUAL_LOWER_BOUND - 10,
