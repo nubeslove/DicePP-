@@ -332,10 +332,18 @@ class InitiativeCommand(UserCommandBase):
                         # reconstruct from dict
                         hp_obj.deserialize(json.dumps(hp_val))
                     elif isinstance(hp_val, str):
-                        # try JSON serialized HPInfo or plain int string
+                        # try parsing string as JSON first, then fallback to integer
                         try:
-                            hp_obj.deserialize(hp_val)
+                            parsed = json.loads(hp_val)
+                            if isinstance(parsed, dict):
+                                hp_obj.deserialize(json.dumps(parsed))
+                            elif isinstance(parsed, int):
+                                hp_obj.initialize(parsed, parsed)
+                            else:
+                                # parsed to a primitive we don't understand; leave default
+                                pass
                         except Exception:
+                            # not JSON — try plain int
                             try:
                                 hp_cur = int(hp_val)
                                 hp_obj.initialize(hp_cur, hp_cur)
