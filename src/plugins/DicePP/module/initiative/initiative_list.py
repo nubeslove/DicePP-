@@ -28,7 +28,7 @@ class _(DataChunkBase):
 @custom_json_object
 class InitList(JsonObject):
     def serialize(self) -> str:
-        json_dict = self.__dict__
+        json_dict = dict(self.__dict__)
         assert "entities" in json_dict.keys()
         for key in json_dict.keys():
             value = json_dict[key]
