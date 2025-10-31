@@ -4,6 +4,7 @@ DND角色卡指令
 
 from typing import List, Tuple, Any, Optional
 import re
+import json
 
 from core.bot import Bot
 from core.data import DataChunkBase, custom_data_chunk, DataManagerError
@@ -116,6 +117,56 @@ class CharacterCommand(UserCommandBase):
             char_info = self.bot.data_manager.get_data(DC_CHAR_DND, [meta.group_id, meta.user_id])
         except DataManagerError:
             char_info = None
+
+        # Defensive normalization: ensure char_info nested objects are correct types
+        if char_info:
+            try:
+                from module.character.dnd5e import HPInfo, AbilityInfo, SpellInfo, MoneyInfo
+                # hp_info
+                try:
+                    if not isinstance(char_info.hp_info, HPInfo):
+                        hp_obj = HPInfo()
+                        if isinstance(char_info.hp_info, dict):
+                            hp_obj.deserialize(json.dumps(char_info.hp_info))
+                        elif isinstance(char_info.hp_info, str):
+                            # try json or plain int
+                            try:
+                                parsed = json.loads(char_info.hp_info)
+                                if isinstance(parsed, dict):
+                                    hp_obj.deserialize(json.dumps(parsed))
+                                elif isinstance(parsed, int):
+                                    hp_obj.initialize(parsed, parsed)
+                            except Exception:
+                                try:
+                                    hp_cur = int(char_info.hp_info)
+                                    hp_obj.initialize(hp_cur, hp_cur)
+                                except Exception:
+                                    pass
+                        char_info.hp_info = hp_obj
+                except Exception:
+                    # ignore and leave as-is
+                    pass
+
+                # ability_info
+                try:
+                    if not isinstance(char_info.ability_info, AbilityInfo):
+                        abil_obj = AbilityInfo()
+                        if isinstance(char_info.ability_info, dict):
+                            abil_obj.deserialize(json.dumps(char_info.ability_info))
+                        elif isinstance(char_info.ability_info, str):
+                            try:
+                                parsed = json.loads(char_info.ability_info)
+                                if isinstance(parsed, dict):
+                                    abil_obj.deserialize(json.dumps(parsed))
+                            except Exception:
+                                # cannot parse, leave default
+                                pass
+                        char_info.ability_info = abil_obj
+                except Exception:
+                    pass
+            except Exception:
+                # if import fails, skip normalization
+                pass
 
         if cmd_type == CMD_TYPE_CHAR:
             content: str = hint[1]
