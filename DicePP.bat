@@ -17,6 +17,7 @@ Title DicePP 启动中 - v1.4.2
 setlocal enabledelayedexpansion
 set GIT_PYTHON_REFRESH=quiet
 set BASE_DIR=%~dp0
+cd /d "%BASE_DIR%"
 set PYTHON_EXE=..\Python\python.exe
 set LOG_FILE=%BASE_DIR%install.log
 set FLAG_FILE=%BASE_DIR%.deps_installed
