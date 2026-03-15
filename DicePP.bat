@@ -148,17 +148,26 @@ echo 启动 DicePP 中...
 set RUNTIME_LOG=%BASE_DIR%runtime.log
 if %ARG_QUIET%==1 echo [INFO] 静默模式: 日志写入 %RUNTIME_LOG%
 REM ===== 端口检测与自动回退 =====
-set DESIRED_PORT=8080
-for %%P in (8080 8081 8082 8090 9000) do (
-	powershell -NoProfile -Command "try{(Get-NetTCPConnection -State Listen -LocalPort %%P -ErrorAction Stop)|Out-Null;$busy=$true}catch{$busy=$false}; if($busy){exit 1}else{exit 0}" >nul 2>&1
-	if not errorlevel 1 (
-		set DESIRED_PORT=%%P
-		goto :port_found
+if defined PORT (
+	set "DESIRED_PORT=%PORT%"
+	echo [INFO] 检测到外部指定端口 !DESIRED_PORT!，将直接使用该端口。
+	powershell -NoProfile -Command "try{(Get-NetTCPConnection -State Listen -LocalPort !DESIRED_PORT! -ErrorAction Stop)|Out-Null;$busy=$true}catch{$busy=$false}; if($busy){exit 1}else{exit 0}" >nul 2>&1
+	if errorlevel 1 echo [WARN] 端口 !DESIRED_PORT! 当前已被占用，请确认目标机器人连接的就是这个端口。
+) else (
+	set "DESIRED_PORT=8080"
+	set "PORT_FOUND=0"
+	for %%P in (8080 8081 8082 8090 9000) do (
+		if "!PORT_FOUND!"=="0" (
+			powershell -NoProfile -Command "try{(Get-NetTCPConnection -State Listen -LocalPort %%P -ErrorAction Stop)|Out-Null;$busy=$true}catch{$busy=$false}; if($busy){exit 1}else{exit 0}" >nul 2>&1
+			if not errorlevel 1 (
+				set "DESIRED_PORT=%%P"
+				set "PORT_FOUND=1"
+			)
+		)
 	)
-)
-:port_found
-if not "%DESIRED_PORT%"=="8080" (
-	echo [INFO] Port 8080 is busy. Using available port %DESIRED_PORT%.
+	if not "!DESIRED_PORT!"=="8080" (
+		echo [INFO] Port 8080 is busy. Using available port !DESIRED_PORT!.
+	)
 )
 REM 若 .env.prod 中写死 8080，提前以环境变量覆写
 set PORT=%DESIRED_PORT%
